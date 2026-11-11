@@ -1,0 +1,100 @@
+﻿MacDock 2.0 - Windows con aspecto de Mac, mas bateria y sin gastar RAM
+======================================================================
+Para Windows 10/11 de 64 bits. No necesita administrador ni instalar nada extra.
+Todo es reversible: el desinstalador deja la PC exactamente como estaba.
+
+QUE INCLUYE ESTE INSTALADOR (un solo programa, ~16-20 MB de RAM en reposo)
+--------------------------------------------------------------------------
+1. DOCK ESTILO MAC (siempre se instala)
+   - Tus apps fijadas con iconos reales, efecto lupa, puntito en las abiertas.
+   - Se esconde cuando una ventana lo tapa; lleva el mouse al borde de abajo.
+   - Pilas: carpeta azul = Escritorio (por tipo), Descargas (por fecha). Escribe para buscar.
+     Arrastra cualquier archivo de la pila a una carpeta, al navegador, WhatsApp, correo...
+   - Clic derecho: ventanas abiertas, quitar/mantener, opciones, apagar Docker y WSL.
+
+2. BARRA SUPERIOR ESTILO MAC (opcion 21 del menu de ajustes)
+   - Logo: Inicio, Configuracion, Administrador de tareas, Suspender, Reiniciar, Apagar.
+   - Nombre de la app: minimizar, maximizar, cerrar.
+   - ^ : iconos de la bandeja (Surfshark, Drive, antivirus...).
+   - Luna/sol: modo oscuro o claro.  Wi-Fi, volumen, bateria: panel rapido.
+   - Fecha y hora: notificaciones y calendario.
+
+3. FUENTE INTER (se instala sola, licencia libre SIL OFL, ver Inter-licencia-OFL.txt)
+
+4. MENU "AJUSTES DE WINDOWS" (Menu Inicio > "Ajustes de Windows (bateria y mas)")
+   Al terminar de instalar te pregunta si abrirlo. Elige por numero o:
+     A = bateria y velocidad recomendadas
+     M = todo el aspecto Mac
+     R = deshacer todo lo del menu
+   Bateria:    1 pantalla 60 Hz con bateria   2 sin Turbo con bateria
+               3 hibernar al cerrar la tapa   4 apps con grafica Intel
+               5 programas de inicio          11 App Nap (apps sin usar en eficiencia)
+               12 sin apps en 2do plano       13 Game Bar sin grabar
+               30 ahorro de energia desde 40% 31 pantalla se apaga a 3 min, duerme a 15
+   Velocidad:  14 arranque sin espera         15 menus instantaneos
+   Uso diario: 6 clic derecho completo        7 ver extensiones   8 Win+V
+               9 sin animaciones              16 esquinas activas
+   Aspecto:    17 acento azul   18 cursor negro   19 sin sonidos   20 fondo aurora
+               21 barra superior   22 letras suaves   23 bloqueo con aurora
+               24 cursor grande   25 Inicio limpio   26 Explorador tipo Finder
+               27 claro/oscuro automatico   28 fondo dinamico   29 notificaciones tranquilas
+   Privacidad: 10 sin publicidad ni sugerencias
+
+INSTALAR
+  1. Copia esta carpeta a la PC y haz doble clic en "Instalar MacDock.exe".
+  2. Si aparece "Windows protegio su PC": "Mas informacion" > "Ejecutar de todas formas"
+     (sale porque el programa no tiene firma digital comercial).
+  3. Al final abre los Ajustes y pon A, luego M.
+
+DESINSTALAR (deja Windows como estaba: barra, tema, ajustes, fuente)
+  - "Desinstalar MacDock.exe", o Menu Inicio > "Desinstalar MacDock",
+    o Configuracion > Aplicaciones > Aplicaciones instaladas > MacDock.
+
+TIPS
+  - Historial de copiados: Windows+V (activalo una vez en Configuracion > Portapapeles).
+  - Menu de clic derecho completo: Shift + clic derecho.
+  - Configuracion fina del dock: %LOCALAPPDATA%\MacDock\config.ini
+  - Los fondos de pantalla estan en Imagenes\MacDock (se borran al desinstalar).
+
+LAPTOPS HP VICTUS: LIMITAR LA CARGA (cuida la bateria a largo plazo)
+  No se puede hacer desde Windows sin herramientas de HP. Se hace en la BIOS:
+  apaga la laptop, enciendela presionando F10 > Configuration (o Advanced) >
+  "Adaptive Battery Optimizer" / "Battery Care Function" > Enabled (o 80%) > F10 para guardar.
+  El nombre exacto cambia segun la version de BIOS.
+
+
+
+NUEVO EN 3.0
+  - SPOTLIGHT: Alt + Espacio (apps, archivos, ajustes, calculadora).
+  - QUICK LOOK: Espacio sobre un archivo (Finder, pilas y Explorador).
+  - FINDER: el icono del Explorador en el dock (o Menu Inicio > Finder).
+  - Soltar archivos en el dock: Papelera = borrar, app = abrir con ella, Descargas/Escritorio = mover.
+  - Pilas: clic en una carpeta entra en ella; Retroceso vuelve.
+  - Descargas: rebote y numerito con cada descarga nueva.
+  - Ajustes 32 (Explorador con iconos grandes) y 33 (carpetas azules, pide administrador).
+
+
+NUEVO EN 3.1
+  - BOTONES DE MAC: rojo/amarillo/verde sobre la ventana activa de cualquier app (cerrar/minimizar/maximizar).
+    Finder y Vista rapida los tienen a la izquierda, como en Mac. Se apaga en clic derecho > Opciones del dock.
+  - Las apps tipo Chrome ya no quedan debajo de la barra superior.
+
+
+NUEVO EN 3.2
+  - Finder: Ordenar por nombre, fecha, tipo o tamano (clic derecho o boton de la barra); iconos azules estilo Mac.
+  - Clic derecho en el escritorio: menu estilo Mac (el de Windows sigue en 'Mas opciones de Windows').
+  - Botones de Mac corregidos en apps nuevas de Windows (Fotos, etc.).
+
+
+NUEVO EN 3.3
+  - Botones de Mac en TODAS las ventanas: a color en la activa y en gris en las demas.
+  - Clic derecho en el escritorio: estilo Mac + todas las opciones de Windows (Pegar, Nuevo, Git, NVIDIA...).
+  - Pila del Escritorio de lo mas reciente a lo mas antiguo; barra de desplazamiento arrastrable.
+
+
+AGREGAR APPS AL DOCK
+  - Arrastra una app (acceso directo o .exe) desde el Finder, el Escritorio o el menu Inicio al dock.
+  - O fijala en la barra de tareas de Windows: aparece sola en el dock.
+  - O clic derecho en una app abierta del dock > Mantener en el dock.
+  - Para quitar: clic derecho en el icono > Quitar del dock.
+
