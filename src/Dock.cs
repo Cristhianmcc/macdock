@@ -266,7 +266,7 @@ namespace MacDock
         void InitMacFeatures()
         {
             if (cfg.SpotlightKey) RegisterHotKey(Handle, 7, 0x0001 | 0x4000, 0x20);   // Alt + Espacio
-            if (cfg.QuickLookExplorer) { kbProc = KeyboardHook; kbHook = SetWindowsHookEx(13, kbProc, GetModuleHandle(null), 0); }
+            if (cfg.QuickLookExplorer) SetKeyHook(true);
             AllowDrop = true;
             SetMacButtons(cfg.MacButtons);
             SetDesktopMenu(cfg.DesktopMenu);
@@ -289,8 +289,39 @@ namespace MacDock
 
         void SetDesktopMenu(bool on)
         {
-            if (on && msHook == IntPtr.Zero) { msProc = MouseHook; msHook = SetWindowsHookEx(14, msProc, GetModuleHandle(null), 0); }
-            else if (!on && msHook != IntPtr.Zero) { UnhookWindowsHookEx(msHook); msHook = IntPtr.Zero; }
+            OnHookThread(() =>
+            {
+                if (on && msHook == IntPtr.Zero) { msProc = MouseHook; msHook = SetWindowsHookEx(14, msProc, GetModuleHandle(null), 0); }
+                else if (!on && msHook != IntPtr.Zero) { UnhookWindowsHookEx(msHook); msHook = IntPtr.Zero; }
+            });
+        }
+
+        void SetKeyHook(bool on)
+        {
+            OnHookThread(() =>
+            {
+                if (on && kbHook == IntPtr.Zero) { kbProc = KeyboardHook; kbHook = SetWindowsHookEx(13, kbProc, GetModuleHandle(null), 0); }
+                else if (!on && kbHook != IntPtr.Zero) { UnhookWindowsHookEx(kbHook); kbHook = IntPtr.Zero; }
+            });
+        }
+
+        // Los ganchos de mouse y teclado viven en su propio hilo: Windows espera la respuesta en cada movimiento del
+        // mouse, y si el hilo del dock esta dibujando, el cursor se traba. Aqui responden al instante.
+        static Control hookCtl;
+        static void OnHookThread(Action a)
+        {
+            if (hookCtl == null)
+            {
+                var ready = new System.Threading.ManualResetEvent(false);
+                var th = new System.Threading.Thread(() =>
+                {
+                    var ctl = new Control(); ctl.CreateControl(); var hh = ctl.Handle; hookCtl = ctl; ready.Set();
+                    Application.Run();
+                });
+                th.IsBackground = true; th.Name = "ganchos"; th.SetApartmentState(System.Threading.ApartmentState.STA); th.Start();
+                ready.WaitOne(3000);
+            }
+            try { if (hookCtl != null) hookCtl.Invoke(a); } catch (Exception ex) { Program.Log(ex); }
         }
 
         static bool IsDesktopAt(N.POINT p)
@@ -361,7 +392,7 @@ namespace MacDock
         void StopMacFeatures()
         {
             try { UnregisterHotKey(Handle, 7); } catch { }
-            try { if (kbHook != IntPtr.Zero) UnhookWindowsHookEx(kbHook); kbHook = IntPtr.Zero; } catch { }
+            try { SetKeyHook(false); } catch { }
             try { if (dlWatcher != null) dlWatcher.Dispose(); } catch { }
             try { SetMacButtons(false); } catch { }
             try { SetDesktopMenu(false); } catch { }
@@ -1553,8 +1584,8 @@ namespace MacDock
             addOpt("Vista rapida con Espacio en el Explorador", cfg.QuickLookExplorer, () =>
             {
                 cfg.QuickLookExplorer = !cfg.QuickLookExplorer; cfg.Save();
-                if (cfg.QuickLookExplorer && kbHook == IntPtr.Zero) { kbProc = KeyboardHook; kbHook = SetWindowsHookEx(13, kbProc, GetModuleHandle(null), 0); }
-                else if (!cfg.QuickLookExplorer && kbHook != IntPtr.Zero) { UnhookWindowsHookEx(kbHook); kbHook = IntPtr.Zero; }
+                if (cfg.QuickLookExplorer) SetKeyHook(true);
+                else SetKeyHook(false);
             });
             addOpt("Modo claro de dia, oscuro de noche", cfg.AutoTheme, () =>
             {

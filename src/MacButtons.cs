@@ -21,7 +21,35 @@ namespace MacDock
         [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr h, int flags);
         [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int attr, out int v, int size);
 
-        WinEventProc proc; IntPtr hookSys, hookObj;
+        WinEventProc proc; IntPtr hookSys, hookObj, hookLoc; uint hookThreadId;
+        [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll")] static extern bool PostThreadMessage(uint tid, int msg, IntPtr w, IntPtr l);
+        readonly HashSet<IntPtr> tracked = new HashSet<IntPtr>();      // ventanas con botones (para filtrar rapido en el hilo de eventos)
+        readonly HashSet<IntPtr> pendingMove = new HashSet<IntPtr>();  // movimientos agrupados
+        bool moveScheduled, closing;
+
+        // Corre en el hilo de eventos: descarta casi todo sin tocar el hilo principal.
+        void OnEventBg(IntPtr hk, uint ev, IntPtr hwnd, int obj, int child, uint thread, uint time)
+        {
+            if (obj != 0 || child != 0 || hwnd == IntPtr.Zero || closing) return;
+            if (ev == 0x800B)
+            {
+                lock (tracked) { if (!tracked.Contains(hwnd)) return; }
+                lock (pendingMove) { pendingMove.Add(hwnd); if (moveScheduled) return; moveScheduled = true; }
+                try { BeginInvoke(new Action(FlushMoves)); } catch { }
+                return;
+            }
+            if (ev != 0x0003 && ev != 0x000A && ev != 0x000B && ev != 0x0017 && ev != 0x8000 && ev != 0x8001 && ev != 0x8002 && ev != 0x8003) return;
+            if ((ev == 0x000A || ev == 0x000B || ev == 0x0017 || ev == 0x8001 || ev == 0x8003)) { lock (tracked) { if (!tracked.Contains(hwnd)) return; } }
+            try { BeginInvoke(new Action(() => OnEvent(hk, ev, hwnd, obj, child, thread, time))); } catch { }
+        }
+
+        void FlushMoves()
+        {
+            List<IntPtr> list; lock (pendingMove) { list = pendingMove.ToList(); pendingMove.Clear(); moveScheduled = false; }
+            ButtonOverlay ov;
+            foreach (var h in list) if (overlays.TryGetValue(h, out ov)) ov.Place(h == active);
+        }
         readonly Dictionary<IntPtr, ButtonOverlay> overlays = new Dictionary<IntPtr, ButtonOverlay>();
         IntPtr active = IntPtr.Zero;
         Timer cleanup = new Timer { Interval = 2000 };
@@ -42,9 +70,17 @@ namespace MacDock
         {
             base.OnShown(e);
             N.ShowWindow(Handle, 0);
-            proc = OnEvent;
-            hookSys = SetWinEventHook(0x0003, 0x0017, IntPtr.Zero, proc, 0, 0, 0);   // activa, mover/redimensionar, minimizar/restaurar
-            hookObj = SetWinEventHook(0x8000, 0x800B, IntPtr.Zero, proc, 0, 0, 0);   // crear, destruir, mostrar, ocultar, cambiar de lugar
+            proc = OnEventBg;
+            var th = new System.Threading.Thread(() =>
+            {
+                hookThreadId = GetCurrentThreadId();
+                hookSys = SetWinEventHook(0x0003, 0x0017, IntPtr.Zero, proc, 0, 0, 0);
+                hookObj = SetWinEventHook(0x8000, 0x8003, IntPtr.Zero, proc, 0, 0, 0);
+                hookLoc = SetWinEventHook(0x800B, 0x800B, IntPtr.Zero, proc, 0, 0, 0);
+                Application.Run();
+                UnhookWinEvent(hookSys); UnhookWinEvent(hookObj); UnhookWinEvent(hookLoc);
+            });
+            th.IsBackground = true; th.SetApartmentState(System.Threading.ApartmentState.STA); th.Start();
             active = N.GetForegroundWindow();
             var all = new List<IntPtr>();
             N.EnumWindows((h, l) => { all.Add(h); return true; }, IntPtr.Zero);
@@ -70,7 +106,7 @@ namespace MacDock
                     case 0x000B: case 0x0017: if (overlays.TryGetValue(hwnd, out ov)) ov.Place(hwnd == active); break;
                     case 0x8002: case 0x8000: Ensure(hwnd); break;
                     case 0x8001: case 0x8003: Remove(hwnd); break;
-                    case 0x800B: if (overlays.TryGetValue(hwnd, out ov)) ov.Place(hwnd == active); break;
+
                 }
             }
             catch { }
@@ -80,7 +116,7 @@ namespace MacDock
         {
             if (overlays.ContainsKey(h) || !Eligible(h)) return;
             var ov = new ButtonOverlay(h);
-            overlays[h] = ov;
+            overlays[h] = ov; lock (tracked) tracked.Add(h);
             ov.Show();
             ov.Place(h == active);
         }
@@ -89,7 +125,7 @@ namespace MacDock
         {
             ButtonOverlay ov;
             if (!overlays.TryGetValue(h, out ov)) return;
-            overlays.Remove(h);
+            overlays.Remove(h); lock (tracked) tracked.Remove(h);
             try { if (!ov.IsDisposed) { ov.Close(); ov.Dispose(); } } catch { }
         }
 
@@ -116,7 +152,7 @@ namespace MacDock
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            try { if (hookSys != IntPtr.Zero) UnhookWinEvent(hookSys); if (hookObj != IntPtr.Zero) UnhookWinEvent(hookObj); } catch { }
+            closing = true; try { if (hookThreadId != 0) PostThreadMessage(hookThreadId, 0x12, IntPtr.Zero, IntPtr.Zero); } catch { }
             cleanup.Stop();
             foreach (var h in overlays.Keys.ToList()) Remove(h);
             base.OnFormClosing(e);
@@ -132,7 +168,7 @@ namespace MacDock
         [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] static extern IntPtr SetWindowLongPtr(IntPtr h, int idx, IntPtr v);
 
         readonly IntPtr target;
-        Rectangle area; Color bgColor = Color.Black; bool isActive, inside; float s = 1f;
+        Rectangle area; Color bgColor = Color.Black; bool isActive, inside, drawn, drawnActive; float s = 1f;
         Timer hoverTimer = new Timer { Interval = 60 };
 
         public ButtonOverlay(IntPtr target)
@@ -182,11 +218,17 @@ namespace MacDock
                     a = new Rectangle(fr.right - w, fr.top + 1, w - 1, hh);
                 }
                 if (a.Width < 40 || a.Height < 14 || fr.right - fr.left < 300) { Hide2(); return; }
+                // Solo se movio: mover la capa sin redibujar ni leer la pantalla (lo que causaba el lag)
+                if (drawn && a.Size == area.Size && activeWin == drawnActive && N.IsWindowVisible(Handle))
+                {
+                    if (a.Location != area.Location) { area = a; N.SetWindowPos(Handle, IntPtr.Zero, a.Left, a.Top, 0, 0, 0x0001 | 0x0004 | 0x0010 | 0x0200); }
+                    return;
+                }
+                area = a; drawn = true; drawnActive = activeWin;
                 IntPtr dc = N.GetDC(IntPtr.Zero);
                 uint px = GetPixel(dc, a.Left - (int)(6 * dpi), a.Top + Math.Max(1, (int)(2 * dpi)));
                 N.ReleaseDC(IntPtr.Zero, dc);
                 if (px != 0xFFFFFFFF) bgColor = Color.FromArgb(255, (int)(px & 0xFF), (int)((px >> 8) & 0xFF), (int)((px >> 16) & 0xFF));
-                area = a;
                 Render();
                 N.ShowWindow(Handle, 4);
             }

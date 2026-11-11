@@ -26,19 +26,26 @@ namespace MacDock
             }
             if (string.IsNullOrEmpty(path) || (!File.Exists(path) && !Directory.Exists(path))) return;
             Current = new QuickLook(path, light);
-            Current.FormClosed += (o, e) => { Current = null; };
+            Current.FormClosed += (o, e) => { Current = null; openHandle = IntPtr.Zero; };
             Current.Show();
+            openHandle = Current.Handle;
             Current.Activate();
         }
 
+        static volatile IntPtr openHandle;
+
+        // Se llama desde el hilo de los atajos: solo usa el handle guardado, nunca el formulario.
         public static bool IsOpenAndFocused()
         {
-            if (Current == null || Current.IsDisposed) return false;
+            IntPtr qh = openHandle;
+            if (qh == IntPtr.Zero) return false;
             IntPtr fg = N.GetForegroundWindow();
-            return fg == Current.Handle || Current.ContainsFocus || IsChildOf(fg, Current.Handle);
+            return IsChildOf(fg, qh) || GetAncestorRoot(fg) == qh;
         }
 
         [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr h);
+        [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr h, int flags);
+        static IntPtr GetAncestorRoot(IntPtr h) { return h == IntPtr.Zero ? h : GetAncestor(h, 3); }
         static bool IsChildOf(IntPtr h, IntPtr parent) { while (h != IntPtr.Zero) { if (h == parent) return true; h = GetParent(h); } return false; }
 
         static readonly string[] ImageExt = { ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".tif", ".tiff" };

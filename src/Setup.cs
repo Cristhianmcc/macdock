@@ -193,7 +193,7 @@ namespace MacDock
                 using (var k = Registry.CurrentUser.CreateSubKey(UninstKey))
                 {
                     k.SetValue("DisplayName", "MacDock (dock estilo Mac)");
-                    k.SetValue("DisplayVersion", "3.6");
+                    k.SetValue("DisplayVersion", "3.7");
                     k.SetValue("Publisher", "MacDock");
                     k.SetValue("DisplayIcon", Exe);
                     k.SetValue("InstallLocation", Dir);
