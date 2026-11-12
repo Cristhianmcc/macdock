@@ -298,4 +298,38 @@ namespace MacDock
             return bmp;
         }
     }
+
+    // Detecta juegos, videos y presentaciones a pantalla completa (exclusiva o "sin bordes") en la pantalla principal.
+    static class FullscreenApp
+    {
+        [DllImport("shell32.dll")] static extern int SHQueryUserNotificationState(out int state);
+        [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr h, out N.RECT r);
+        [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref N.POINT p);
+        static readonly string[] ShellClasses = { "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "Windows.UI.Core.CoreWindow",
+            "XamlExplorerHostIslandWindow", "TopLevelWindowForOverflowXamlIsland", "#32768", "MultitaskingViewFrame", "ForegroundStaging" };
+        static readonly uint myPid = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+
+        public static bool Active(IntPtr me)
+        {
+            try
+            {
+                IntPtr fg = N.GetForegroundWindow();
+                if (fg == IntPtr.Zero || fg == me || N.IsIconic(fg)) return false;
+                if (Array.IndexOf(ShellClasses, N.ClassOf(fg)) >= 0) return false;
+                uint pid; N.GetWindowThreadProcessId(fg, out pid);
+                if (pid == myPid) return false;
+                var scr = System.Windows.Forms.Screen.FromHandle(fg);
+                if (!scr.Primary) return false;
+                int st;
+                if (SHQueryUserNotificationState(out st) == 0 && (st == 3 || st == 4)) return true;   // D3D exclusivo o modo presentacion
+                // "Pantalla completa sin bordes": el area de la ventana (sin titulo) cubre toda la pantalla.
+                // Una ventana maximizada normal no la cubre (deja la barra superior y tiene titulo).
+                N.RECT c; if (!GetClientRect(fg, out c)) return false;
+                var p = new N.POINT(); ClientToScreen(fg, ref p);
+                var b = scr.Bounds;
+                return p.x <= b.Left && p.y <= b.Top && p.x + (c.right - c.left) >= b.Right && p.y + (c.bottom - c.top) >= b.Bottom;
+            }
+            catch { return false; }
+        }
+    }
 }

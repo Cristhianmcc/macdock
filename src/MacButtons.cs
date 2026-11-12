@@ -47,6 +47,7 @@ namespace MacDock
         void FlushMoves()
         {
             List<IntPtr> list; lock (pendingMove) { list = pendingMove.ToList(); pendingMove.Clear(); moveScheduled = false; }
+            if (paused) return;
             ButtonOverlay ov;
             foreach (var h in list) if (overlays.TryGetValue(h, out ov)) ov.Place(h == active);
         }
@@ -88,9 +89,18 @@ namespace MacDock
             cleanup.Start();
         }
 
+        // Con un juego o video a pantalla completa no se muestra ningun boton encima.
+        bool paused;
+        public void SetPaused(bool p)
+        {
+            if (paused == p) return;
+            paused = p;
+            foreach (var kv in overlays.ToList()) { if (p) kv.Value.Hide2(); else kv.Value.Place(kv.Key == active); }
+        }
+
         void OnEvent(IntPtr hk, uint ev, IntPtr hwnd, int obj, int child, uint thread, uint time)
         {
-            if (obj != 0 || child != 0 || hwnd == IntPtr.Zero) return;
+            if (obj != 0 || child != 0 || hwnd == IntPtr.Zero || paused) return;
             try
             {
                 ButtonOverlay ov;

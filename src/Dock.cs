@@ -648,6 +648,7 @@ namespace MacDock
         {
             try
             {
+                CheckFullscreen();   // nunca mover un juego o video a pantalla completa
                 if (bar == null || fullApp) return;
                 IntPtr h = N.GetForegroundWindow();
                 if (h == IntPtr.Zero || N.IsIconic(h)) return;
@@ -1693,21 +1694,11 @@ namespace MacDock
 
         void CheckFullscreen()
         {
-            IntPtr fg = N.GetForegroundWindow();
-            bool full = false;
-            if (fg != IntPtr.Zero && fg != Handle && !N.IsZoomed(fg))
-            {
-                string c = N.ClassOf(fg);
-                if (c != "Progman" && c != "WorkerW" && c != "Shell_TrayWnd" && c != "Windows.UI.Core.CoreWindow" && c != "XamlExplorerHostIslandWindow")
-                {
-                    N.RECT r; N.GetWindowRect(fg, out r);
-                    var scr = Screen.FromHandle(fg); var b = scr.Bounds;
-                    bool hasCaption = (N.GetWindowLong(fg, -16) & 0x00C00000) == 0x00C00000;
-                    full = scr.Primary && !hasCaption && r.left <= b.Left && r.top <= b.Top && r.right >= b.Right && r.bottom >= b.Bottom;
-                }
-            }
+            bool full = FullscreenApp.Active(Handle);
+            if (full == fullApp) return;
             fullApp = full;
             if (bar != null) bar.SetFull(full);
+            if (macBtns != null) macBtns.SetPaused(full);
         }
 
         float SlidePx { get { return slide * (BottomM + BarH + 8 * s); } }
