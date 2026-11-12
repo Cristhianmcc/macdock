@@ -96,6 +96,7 @@ Incluye además un **menú de ajustes** (un script de PowerShell) que cambia la 
 ### 🎨 Apariencia
 - Acento azul, **cursor estilo Mac** (dibujado por código, nítido en cualquier tamaño), fuente **Inter** (libre, muy parecida a la de Mac), letras suavizadas y sin sonidos del sistema.
 - **Fondos aurora** que cambian con la hora del día (amanecer, día, atardecer, noche), también en la pantalla de bloqueo.
+- **Fondos en pixel art**: **Universo pixel** (nebulosa, planeta con anillos, luna, estrella fugaz) y **Ciudad neón** (ciudad cyberpunk con letreros de neón, sol retro y lluvia de noche). Originales, dibujados por código, también con sus 4 versiones según la hora. Clic derecho en el dock o en el escritorio → **Fondos de MacDock**; "Volver a mi fondo anterior" regresa el tuyo.
 - **Carpetas azules**, Explorador con iconos grandes, menú Inicio más limpio y escritorio limpio (iconos ocultos, accesibles desde la pila).
 - **Esquinas activas:** lleva el mouse a una esquina para ver todas las ventanas o el escritorio.
 - **Clic derecho en el escritorio** con estilo Mac, que incluye todas las opciones de Windows (Nuevo, Pegar, Git, NVIDIA…).
@@ -211,6 +212,7 @@ El resultado queda en `dist\` y en `descargas\MacDock-Instalador.zip`.
 | `src/Launchpad.cs` | Launchpad: todas las apps a pantalla completa |
 | `src/AppSwitcher.cs` | El selector de apps estilo Cmd + Tab (Alt + Tab) |
 | `src/Widgets.cs` | Los widgets del escritorio (reloj, calendario, batería, sistema, notas) |
+| `src/Wallpapers.cs` | Los fondos dibujados por código: aurora, universo pixel y ciudad neón |
 | `src/AppIndex.cs` | La lista de apps instaladas que comparten Launchpad y Spotlight |
 | `src/QuickLook.cs` | La vista rápida (Espacio) |
 | `src/MacButtons.cs` | Los botones de colores sobre las ventanas |

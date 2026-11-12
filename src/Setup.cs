@@ -241,6 +241,8 @@ namespace MacDock
             try
             {
                 StopRunningDock();
+                // el fondo que tenias antes de elegir uno de MacDock en el dock (los Ajustes, abajo, restauran lo suyo despues)
+                try { Wallpapers.RestorePrevious(); } catch { }
                 // deshacer tambien lo aplicado desde "Ajustes de Windows"
                 if (File.Exists(Path.Combine(Dir, "ajustes-respaldo.json")) && File.Exists(AjustesPs1))
                 {

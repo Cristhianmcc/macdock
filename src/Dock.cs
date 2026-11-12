@@ -99,6 +99,7 @@ namespace MacDock
         public bool Launchpad = true;       // el icono de Inicio del dock abre Launchpad (Alt + Shift + Espacio)
         public bool AppSwitcher = true;     // Alt + Tab muestra el selector de apps estilo Cmd + Tab
         public bool Widgets = true;         // widgets en el escritorio (cuales y donde: widgets.ini)
+        public string WallTheme = "";       // fondo elegido en el dock: aurora, universo o neon ("" = el tuyo)
         public TimeSpan LightFrom = new TimeSpan(7, 0, 0);
         public TimeSpan DarkFrom = new TimeSpan(18, 30, 0);
         public bool HideTaskbar = true;
@@ -134,6 +135,7 @@ namespace MacDock
                 else if (k == "launchpad") Launchpad = v == "1";
                 else if (k == "appswitcher") AppSwitcher = v == "1";
                 else if (k == "widgets") Widgets = v == "1";
+                else if (k == "walltheme") WallTheme = v.ToLowerInvariant();
                 else if (k == "lightfrom") { TimeSpan t; if (TimeSpan.TryParse(v, out t)) LightFrom = t; }
                 else if (k == "darkfrom") { TimeSpan t; if (TimeSpan.TryParse(v, out t)) DarkFrom = t; }
             }
@@ -165,6 +167,7 @@ namespace MacDock
                     "Launchpad=" + (Launchpad ? 1 : 0) + "\r\n" +
                     "AppSwitcher=" + (AppSwitcher ? 1 : 0) + "\r\n" +
                     "Widgets=" + (Widgets ? 1 : 0) + "\r\n" +
+                    "WallTheme=" + WallTheme + "\r\n" +
                     "ReserveSpace=" + (ReserveSpace ? 1 : 0) + "\r\n" +
                     "HideTaskbar=" + (HideTaskbar ? 1 : 0) + "\r\n");
             }
@@ -384,6 +387,7 @@ namespace MacDock
             Add(m, "Abrir el escritorio en Finder", () => Finder.OpenOrFocus(light, s, desk));
             Add(m, "Ver lo que hay en el escritorio (pila)", () => { if (stackItem != null) ToggleStack(stackItem); });
             Add(m, DesktopIcons.Visible ? "Ocultar iconos del escritorio" : "Mostrar iconos del escritorio", () => DesktopIcons.Toggle());
+            m.Items.Add(WallpaperMenu());
             Add(m, "Cambiar fondo de pantalla...", () => Process.Start("ms-settings:personalization-background"));
             m.Items.Add(new ToolStripSeparator());
             // Ordenar por / Actualizar (los mismos comandos que usa el escritorio de Windows)
@@ -403,6 +407,31 @@ namespace MacDock
             N.SetForegroundWindow(Handle);
             m.Show(pt);
         }
+        // Fondos de MacDock dibujados por codigo: aurora, universo pixel y ciudad neon (cada uno cambia con la hora si esta el fondo dinamico).
+        ToolStripMenuItem WallpaperMenu()
+        {
+            var wm = new ToolStripMenuItem("Fondos de MacDock");
+            foreach (var t in Wallpapers.Themes)
+            {
+                string theme = t;
+                var mi = new ToolStripMenuItem(Wallpapers.NameOf(theme)) { Checked = cfg.WallTheme == theme };
+                mi.Click += (o, e) =>
+                {
+                    cfg.WallTheme = theme; cfg.Save();
+                    Wallpapers.Apply(theme, ok => { if (!ok) try { BeginInvoke(new Action(() => MessageBox.Show("No se pudo crear el fondo. Revisa error.log en la carpeta de MacDock.", "MacDock"))); } catch { } });
+                };
+                wm.DropDownItems.Add(mi);
+            }
+            wm.DropDownItems.Add(new ToolStripSeparator());
+            var dyn = new ToolStripMenuItem("Cambiar según la hora del día") { Checked = cfg.DynWall };
+            dyn.Click += (o, e) => { cfg.DynWall = !cfg.DynWall; cfg.Save(); lookAt = DateTime.MinValue; };
+            wm.DropDownItems.Add(dyn);
+            var back = new ToolStripMenuItem("Volver a mi fondo anterior") { Enabled = Wallpapers.HasPrevious };
+            back.Click += (o, e) => { if (Wallpapers.RestorePrevious()) { cfg.WallTheme = ""; cfg.DynWall = false; cfg.Save(); } };
+            wm.DropDownItems.Add(back);
+            return wm;
+        }
+
         void StopMacFeatures()
         {
             try { UnregisterHotKey(Handle, 7); } catch { }
@@ -1732,6 +1761,7 @@ namespace MacDock
             Add(m, "Abrir Finder", () => Finder.OpenOrFocus(light, s));
             Add(m, "Buscar con Spotlight (Alt + Espacio)", () => Spotlight.Toggle(light, s));
             Add(m, "Abrir Launchpad", () => Launchpad.Toggle(s));
+            m.Items.Add(WallpaperMenu());
             if (DockerRunning()) Add(m, "Apagar Docker y WSL (libera RAM y bateria)", () => StopDocker());
             m.Items.Add(opts);
             Add(m, "Cerrar dock y volver a la barra de Windows", () => Close());

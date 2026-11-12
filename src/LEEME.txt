@@ -102,6 +102,8 @@ NUEVO EN 3.9
   - WIDGETS EN EL ESCRITORIO: reloj, calendario, bateria, sistema (CPU y RAM) y notas.
     Arrastralos para moverlos; clic derecho para quitar o agregar. Opciones del dock > Widgets.
   - La bateria de la barra superior y del dock muestra un rayo al conectar el cargador.
+  - FONDOS PIXEL ART: "Universo pixel" y "Ciudad neon" (cyberpunk), con versiones por hora del dia.
+    Clic derecho en el dock o en el escritorio > Fondos de MacDock. "Volver a mi fondo anterior" regresa el tuyo.
 
 
 AGREGAR APPS AL DOCK
