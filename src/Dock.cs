@@ -98,6 +98,7 @@ namespace MacDock
         public bool DesktopMenu = true;
         public bool Launchpad = true;       // el icono de Inicio del dock abre Launchpad (Alt + Shift + Espacio)
         public bool AppSwitcher = true;     // Alt + Tab muestra el selector de apps estilo Cmd + Tab
+        public bool Widgets = true;         // widgets en el escritorio (cuales y donde: widgets.ini)
         public TimeSpan LightFrom = new TimeSpan(7, 0, 0);
         public TimeSpan DarkFrom = new TimeSpan(18, 30, 0);
         public bool HideTaskbar = true;
@@ -132,6 +133,7 @@ namespace MacDock
                 else if (k == "desktopmenu") DesktopMenu = v == "1";
                 else if (k == "launchpad") Launchpad = v == "1";
                 else if (k == "appswitcher") AppSwitcher = v == "1";
+                else if (k == "widgets") Widgets = v == "1";
                 else if (k == "lightfrom") { TimeSpan t; if (TimeSpan.TryParse(v, out t)) LightFrom = t; }
                 else if (k == "darkfrom") { TimeSpan t; if (TimeSpan.TryParse(v, out t)) DarkFrom = t; }
             }
@@ -162,6 +164,7 @@ namespace MacDock
                     "DesktopMenu=" + (DesktopMenu ? 1 : 0) + "\r\n" +
                     "Launchpad=" + (Launchpad ? 1 : 0) + "\r\n" +
                     "AppSwitcher=" + (AppSwitcher ? 1 : 0) + "\r\n" +
+                    "Widgets=" + (Widgets ? 1 : 0) + "\r\n" +
                     "ReserveSpace=" + (ReserveSpace ? 1 : 0) + "\r\n" +
                     "HideTaskbar=" + (HideTaskbar ? 1 : 0) + "\r\n");
             }
@@ -910,7 +913,7 @@ namespace MacDock
             try { s = N.GetDpiForWindow(Handle) / 96f; } catch { s = DeviceDpi / 96f; }
             if (s <= 0) s = 1f;
             ReadTheme();
-            SystemEvents.UserPreferenceChanged += (o, a) => { ReadTheme(); Render(); if (bar != null) bar.SetTheme(light); };
+            SystemEvents.UserPreferenceChanged += (o, a) => { ReadTheme(); Render(); if (bar != null) bar.SetTheme(light); global::MacDock.Widgets.SetTheme(light); };
             SystemEvents.DisplaySettingsChanged += (o, a) => BeginInvoke(new Action(() => { Relayout(); if (appBarOn) SetAppBarPos(); if (bar != null) bar.OnDisplayChanged(); }));
             BuildItems();
             SetupTaskbar();
@@ -918,10 +921,11 @@ namespace MacDock
             RefreshRunning();
             Relayout();
             SetupWatcher();
-            SystemEvents.PowerModeChanged += (o, a) => BeginInvoke(new Action(() => { lastPower = (PowerLineStatus)(-1); refreshCheckAt = DateTime.Now.AddSeconds(2); }));
+            SystemEvents.PowerModeChanged += (o, a) => BeginInvoke(new Action(() => { lastPower = (PowerLineStatus)(-1); refreshCheckAt = DateTime.Now.AddSeconds(2); lastClock = ""; }));
             ApplyRefresh();
             if (cfg.MenuBar) SetMenuBar(true);
             InitMacFeatures();
+            if (cfg.Widgets) global::MacDock.Widgets.Start(s, light);
             slow.Start();
             edge.Start();
             idleSince = DateTime.Now;
@@ -1141,7 +1145,8 @@ namespace MacDock
                 RefreshRunning();
                 bool tf = N.RecycleBinFull();
                 if (tf != trashFull) { trashFull = tf; trashItem.Icon = TrashIcon() ?? trashItem.Icon; Render(); }
-                string clk = DateTime.Now.ToString("HH:mm") + SystemInformation.PowerStatus.BatteryLifePercent;
+                var bst = BatteryGlyph.Read();
+                string clk = DateTime.Now.ToString("HH:mm") + bst.Pct + bst.Plugged;
                 if (clk != lastClock) { lastClock = clk; if (!fast.Enabled) Render(); }
                 if (!fast.Enabled && idleSince != DateTime.MaxValue && (DateTime.Now - idleSince).TotalSeconds > 3)
                 {
@@ -1403,17 +1408,13 @@ namespace MacDock
             using (var b2 = new SolidBrush(Color.FromArgb(28, 28, 30)))
                 g.DrawString(now.ToString("HH:mm"), f2, b2, new RectangleF(r.X, r.Y + r.Height * 0.3f, r.Width, r.Height * 0.36f), sf);
 
-            var ps = SystemInformation.PowerStatus;
-            float pct = ps.BatteryLifePercent;
-            if (pct >= 0 && pct <= 1 && ps.BatteryChargeStatus != BatteryChargeStatus.NoSystemBattery)
+            var bst = BatteryGlyph.Read();
+            float pct = bst.Pct;
+            if (bst.HasBattery)
             {
                 float bw = r.Width * 0.24f, bh = r.Height * 0.11f;
                 float bx = r.X + r.Width * 0.2f, by = r.Y + r.Height * 0.73f;
-                using (var pen = new Pen(Color.FromArgb(140, 0, 0, 0), Math.Max(1f, r.Width * 0.018f)))
-                using (var bp = Round(new RectangleF(bx, by, bw, bh), bh * 0.25f)) g.DrawPath(pen, bp);
-                Color fill = pct <= 0.2f ? Color.FromArgb(255, 59, 48) : (ps.PowerLineStatus == PowerLineStatus.Online ? Color.FromArgb(52, 199, 89) : Color.FromArgb(60, 60, 64));
-                using (var fb = new SolidBrush(fill)) g.FillRectangle(fb, bx + bw * 0.1f, by + bh * 0.22f, (bw * 0.8f) * pct, bh * 0.56f);
-                using (var tb = new SolidBrush(Color.FromArgb(140, 0, 0, 0))) g.FillRectangle(tb, bx + bw, by + bh * 0.3f, bw * 0.07f, bh * 0.4f);
+                BatteryGlyph.Draw(g, new RectangleF(bx, by, bw, bh), bst, Color.FromArgb(60, 60, 64), Color.FromArgb(140, 0, 0, 0), Color.FromArgb(252, 252, 252), s);
                 using (var f3 = new Font(UiFont.Reg, r.Width * 0.13f, FontStyle.Regular, GraphicsUnit.Pixel))
                 using (var b3 = new SolidBrush(Color.FromArgb(90, 90, 96)))
                     g.DrawString((int)Math.Round(pct * 100) + "%", f3, b3, bx + bw * 1.15f, by - r.Height * 0.035f);
@@ -1671,6 +1672,29 @@ namespace MacDock
                 if (startItem != null) startItem.Name = cfg.Launchpad ? "Launchpad" : "Inicio";
                 Render();
             });
+            var wmenu = new ToolStripMenuItem("Widgets en el escritorio");
+            {
+                var all0 = new ToolStripMenuItem("Mostrar widgets") { Checked = cfg.Widgets };
+                all0.Click += (o, e) =>
+                {
+                    cfg.Widgets = !cfg.Widgets; cfg.Save();
+                    if (cfg.Widgets) global::MacDock.Widgets.Start(s, light); else global::MacDock.Widgets.Stop();
+                };
+                wmenu.DropDownItems.Add(all0);
+                wmenu.DropDownItems.Add(new ToolStripSeparator());
+                foreach (var k in global::MacDock.Widgets.Kinds)
+                {
+                    string kind = k; bool on = global::MacDock.Widgets.IsOn(kind);
+                    var wi = new ToolStripMenuItem(global::MacDock.Widgets.NameOf(kind)) { Checked = on, Enabled = cfg.Widgets };
+                    wi.Click += (o, e) => global::MacDock.Widgets.SetEnabled(kind, !on);
+                    wmenu.DropDownItems.Add(wi);
+                }
+                wmenu.DropDownItems.Add(new ToolStripSeparator());
+                var reset = new ToolStripMenuItem("Acomodar como al principio") { Enabled = cfg.Widgets };
+                reset.Click += (o, e) => global::MacDock.Widgets.ResetPositions();
+                wmenu.DropDownItems.Add(reset);
+            }
+            opts.DropDownItems.Add(wmenu);
             addOpt("Alt + Tab estilo Mac (una app por icono)", cfg.AppSwitcher, () =>
             {
                 cfg.AppSwitcher = !cfg.AppSwitcher; cfg.Save();
@@ -1878,6 +1902,7 @@ namespace MacDock
                     HideTaskbarIfShown();
                     if (appBarOn) { appBarOn = false; RegisterAppBar(); }
                     if (bar != null) bar.ReRegister();
+                    global::MacDock.Widgets.Restart();   // el escritorio nuevo necesita sus widgets de vuelta
                 }));
             }
             else if (m.Msg == 0x0011 || m.Msg == 0x0016)
@@ -1896,6 +1921,7 @@ namespace MacDock
             try { nap.WakeAll(); } catch { }
             try { StopMacFeatures(); } catch { }
             try { if (bar != null) { bar.Close(); bar = null; } } catch { }
+            try { global::MacDock.Widgets.Stop(); } catch { }
             try { UnregisterAppBar(); } catch { }
             try
             {

@@ -6,7 +6,7 @@
 
 **Convierte tu Windows 10/11 en algo que se ve y se siente como macOS, sin instalar programas pesados.**
 
-Dock con efecto lupa · Launchpad · Cmd+Tab · Barra superior · Finder · Spotlight · Quick Look · Botones de colores · Más batería
+Dock con efecto lupa · Launchpad · Cmd+Tab · Widgets · Barra superior · Finder · Spotlight · Quick Look · Botones de colores · Más batería
 
 ~**15–20 MB de RAM** en total · ~0 % de CPU en reposo · Sin administrador · 100 % reversible
 
@@ -49,6 +49,7 @@ Incluye además un **menú de ajustes** (un script de PowerShell) que cambia la 
 
 - Menú del sistema (Inicio, Configuración, Suspender, Reiniciar, Apagar, Bloquear).
 - Nombre de la **app activa** (minimizar, maximizar, cerrar).
+- La **batería muestra un rayo** al conectar el cargador, al instante.
 - **⌃ iconos de la bandeja** (antivirus, VPN, Drive…), **luna/sol** para modo oscuro/claro, Wi-Fi, volumen, batería y fecha/hora.
 
 ### 🗂️ Finder
@@ -71,6 +72,13 @@ Incluye además un **menú de ajustes** (un script de PowerShell) que cambia la 
 - Mientras mantienes **Alt**: **Tab** / **Shift + Tab** o las flechas para moverte, **Q** cierra la app, **H** la minimiza y **Esc** cancela. También puedes elegir con el mouse.
 - Al soltar Alt, la app elegida pasa al frente **con todas sus ventanas**.
 - **Ctrl + Alt + Tab** sigue abriendo el selector de Windows, y se puede apagar en Opciones del dock.
+
+### 🧩 Widgets en el escritorio
+- **Reloj**, **calendario**, **batería**, **sistema** (procesador y memoria) y **notas**, con aspecto de vidrio, en modo claro u oscuro según Windows.
+- Viven **pegados al escritorio**: detrás de tus ventanas, y siguen ahí con Win + D.
+- **Arrástralos** a donde quieras (se acomodan alineados y recuerdan su lugar). Clic en Notas para escribir.
+- Clic derecho en un widget para quitarlo o agregar otros. También en Opciones del dock → Widgets en el escritorio.
+- No usan internet y casi no gastan: cada uno se redibuja solo cuando cambia lo que muestra.
 
 ### 🔍 Spotlight (Alt + Espacio)
 
@@ -202,6 +210,7 @@ El resultado queda en `dist\` y en `descargas\MacDock-Instalador.zip`.
 | `src/Spotlight.cs` | El buscador (Alt + Espacio) |
 | `src/Launchpad.cs` | Launchpad: todas las apps a pantalla completa |
 | `src/AppSwitcher.cs` | El selector de apps estilo Cmd + Tab (Alt + Tab) |
+| `src/Widgets.cs` | Los widgets del escritorio (reloj, calendario, batería, sistema, notas) |
 | `src/AppIndex.cs` | La lista de apps instaladas que comparten Launchpad y Spotlight |
 | `src/QuickLook.cs` | La vista rápida (Espacio) |
 | `src/MacButtons.cs` | Los botones de colores sobre las ventanas |

@@ -64,6 +64,13 @@ namespace MacDock
             NetworkChange.NetworkAddressChanged += (o, a) => { try { BeginInvoke(new Action(() => Redraw(true))); } catch { } };
             UpdateActive(Win32Fg());
             timer.Start();
+            Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerChanged;   // conectar o quitar el cargador se ve al instante
+        }
+
+        void OnPowerChanged(object o, Microsoft.Win32.PowerModeChangedEventArgs e)
+        {
+            if (e.Mode != Microsoft.Win32.PowerModes.StatusChange) return;
+            try { BeginInvoke(new Action(() => Redraw(true))); } catch { }
         }
 
         static IntPtr Win32Fg() { return N.GetForegroundWindow(); }
@@ -118,10 +125,10 @@ namespace MacDock
         void Redraw(bool force)
         {
             if (full || W <= 0 || IsDisposed) return;
-            var ps = SystemInformation.PowerStatus;
+            var bat = BatteryGlyph.Read();
             bool net = false; try { net = NetworkInterface.GetIsNetworkAvailable(); } catch { }
             string clock = ClockText();
-            string key = appName + "|" + title + "|" + clock + "|" + (int)(ps.BatteryLifePercent * 100) + ps.PowerLineStatus + "|" + net + "|" + light;
+            string key = appName + "|" + title + "|" + clock + "|" + (int)(bat.Pct * 100) + bat.Plugged + bat.Charging + "|" + net + "|" + light;
             if (!force && key == lastKey) return;
             lastKey = key;
 
@@ -165,19 +172,14 @@ namespace MacDock
                         rClock = new RectangleF(rx - 8 * s, 0, cs.Width + 16 * s, H);
                         rx -= 18 * s;
 
-                        float pct = ps.BatteryLifePercent;
-                        if (pct >= 0 && pct <= 1 && ps.BatteryChargeStatus != BatteryChargeStatus.NoSystemBattery)
+                        if (bat.HasBattery)
                         {
-                            string pt = (int)Math.Round(pct * 100) + "%";
+                            string pt = (int)Math.Round(bat.Pct * 100) + "%";
                             float bw = 22 * s, bh = 11 * s;
                             rx -= bw + 2 * s;
                             float by = cy - bh / 2;
-                            using (var pen = new Pen(dim, Math.Max(1f, 1.1f * s)))
-                            using (var path = Round(new RectangleF(rx, by, bw, bh), 3 * s)) g.DrawPath(pen, path);
-                            g.FillRectangle(dimB, rx + bw + 0.8f * s, cy - 2.2f * s, 1.6f * s, 4.4f * s);
-                            Color fill = pct <= 0.2f ? Color.FromArgb(255, 69, 58) : (ps.PowerLineStatus == PowerLineStatus.Online ? Color.FromArgb(52, 199, 89) : fg);
-                            using (var fb = new SolidBrush(fill))
-                            using (var path = Round(new RectangleF(rx + 2 * s, by + 2 * s, Math.Max(1.5f * s, (bw - 4 * s) * pct), bh - 4 * s), 1.5f * s)) g.FillPath(fb, path);
+                            // con el cargador conectado aparece un rayo, como en Mac
+                            BatteryGlyph.Draw(g, new RectangleF(rx, by, bw, bh), bat, fg, dim, light ? Color.FromArgb(246, 246, 248) : Color.FromArgb(28, 28, 32), s);
                             var pts = g.MeasureString(pt, fReg);
                             rx -= pts.Width + 3 * s;
                             g.DrawString(pt, fReg, fgB, rx, cy - pts.Height / 2);
@@ -377,12 +379,15 @@ namespace MacDock
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == appBarMsg && appBarMsg != 0 && m.WParam.ToInt32() == 1) SetPos();
+            // WM_POWERBROADCAST / PBT_APMPOWERSTATUSCHANGE: por si el aviso de SystemEvents no llega
+            else if (m.Msg == 0x0218 && m.WParam.ToInt32() == 0x0A) { try { BeginInvoke(new Action(() => Redraw(true))); } catch { } }
             base.WndProc(ref m);
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             try { timer.Stop(); if (hook != IntPtr.Zero) UnhookWinEvent(hook); hook = IntPtr.Zero; Unregister(); } catch { }
+            try { Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerChanged; } catch { }
             base.OnFormClosing(e);
         }
     }

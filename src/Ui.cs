@@ -226,4 +226,57 @@ namespace MacDock
             p.CloseFigure(); return p;
         }
     }
+
+    // Icono de bateria estilo Mac. Con el cargador conectado muestra un rayo (se usa en la barra superior, el dock y el widget).
+    static class BatteryGlyph
+    {
+        public struct State { public float Pct; public bool Plugged, Charging, HasBattery; }
+
+        public static State Read()
+        {
+            var ps = SystemInformation.PowerStatus;
+            var st = new State();
+            st.HasBattery = ps.BatteryChargeStatus != BatteryChargeStatus.NoSystemBattery && ps.BatteryLifePercent >= 0 && ps.BatteryLifePercent <= 1;
+            st.Pct = st.HasBattery ? ps.BatteryLifePercent : 0;
+            st.Plugged = ps.PowerLineStatus == PowerLineStatus.Online;
+            st.Charging = (ps.BatteryChargeStatus & BatteryChargeStatus.Charging) != 0;
+            return st;
+        }
+
+        // body: el cuerpo de la bateria (sin el polo). fg: color del relleno; frame: contorno; cut: color para recortar el rayo (el del fondo).
+        public static void Draw(Graphics g, RectangleF body, State st, Color fg, Color frame, Color cut, float s)
+        {
+            float rad = body.Height * 0.28f;
+            using (var pen = new Pen(frame, Math.Max(1f, body.Height * 0.1f)))
+            using (var path = Round(body, rad)) g.DrawPath(pen, path);
+            using (var b = new SolidBrush(frame))
+                g.FillRectangle(b, body.Right + body.Height * 0.08f, body.Y + body.Height * 0.3f, body.Height * 0.15f, body.Height * 0.4f);
+
+            Color fill = st.Pct <= 0.2f && !st.Plugged ? Color.FromArgb(255, 69, 58) : (st.Plugged ? Color.FromArgb(52, 199, 89) : fg);
+            float inset = body.Height * 0.18f;
+            var inner = new RectangleF(body.X + inset, body.Y + inset, Math.Max(inset, (body.Width - inset * 2) * st.Pct), body.Height - inset * 2);
+            using (var b = new SolidBrush(fill)) using (var path = Round(inner, rad * 0.5f)) g.FillPath(b, path);
+
+            if (st.Plugged)
+            {
+                // rayo centrado, un poco mas alto que la bateria, con borde del color del fondo para que se lea encima del relleno
+                float h = body.Height * 1.25f, w = h * 0.62f;
+                float cx = body.X + body.Width / 2f, top = body.Y + (body.Height - h) / 2f;
+                var pts = new[] {
+                    new PointF(cx + w * 0.12f, top), new PointF(cx - w * 0.5f, top + h * 0.56f), new PointF(cx - w * 0.02f, top + h * 0.56f),
+                    new PointF(cx - w * 0.14f, top + h), new PointF(cx + w * 0.5f, top + h * 0.42f), new PointF(cx + w * 0.02f, top + h * 0.42f) };
+                using (var path = new GraphicsPath()) { path.AddPolygon(pts);
+                    using (var pen = new Pen(cut, Math.Max(1.2f, body.Height * 0.2f)) { LineJoin = LineJoin.Round }) g.DrawPath(pen, path);
+                    using (var b = new SolidBrush(fg)) g.FillPath(b, path); }
+            }
+        }
+
+        static GraphicsPath Round(RectangleF r, float rad)
+        {
+            var p = new GraphicsPath(); float d = Math.Max(0.1f, rad * 2);
+            p.AddArc(r.X, r.Y, d, d, 180, 90); p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+            p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90); p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+            p.CloseFigure(); return p;
+        }
+    }
 }

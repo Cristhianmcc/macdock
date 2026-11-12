@@ -99,6 +99,9 @@ NUEVO EN 3.9
     H = minimizarla, Esc = cancelar. Ctrl + Alt + Tab sigue siendo el de Windows.
   - Spotlight ahora tambien encuentra las apps de la Tienda (Calculadora, Configuracion, Fotos...).
   - Ambas se apagan en clic derecho en el dock > Opciones del dock.
+  - WIDGETS EN EL ESCRITORIO: reloj, calendario, bateria, sistema (CPU y RAM) y notas.
+    Arrastralos para moverlos; clic derecho para quitar o agregar. Opciones del dock > Widgets.
+  - La bateria de la barra superior y del dock muestra un rayo al conectar el cargador.
 
 
 AGREGAR APPS AL DOCK
