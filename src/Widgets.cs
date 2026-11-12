@@ -485,20 +485,36 @@ namespace MacDock
         protected override int RefreshMs { get { return 5000; } }
         protected override string StateKey() { var b = BatteryGlyph.Read(); return (int)(b.Pct * 100) + "|" + b.Plugged + b.Charging + b.HasBattery; }
 
+        // Diseno limpio: un solo anillo con el porcentaje grande adentro; el rayo pequeno arriba solo si esta conectada.
         protected override void DrawContent(Graphics g, RectangleF r)
         {
             var b = BatteryGlyph.Read();
-            var c = new PointF(r.X + r.Width / 2f, r.Y + r.Height * 0.43f);
-            float R = r.Width * 0.27f;
-            Color col = b.Plugged ? Green : (b.Pct <= 0.2f ? Red : Green);
-            Ring(g, c, R, 8 * s, b.HasBattery ? b.Pct : 1f, col);
-            // icono de bateria (con rayo si esta conectada) dentro del anillo
-            float bw = R * 0.9f, bh = bw * 0.46f;
-            BatteryGlyph.Draw(g, new RectangleF(c.X - bw / 2 - 2 * s, c.Y - bh / 2, bw, bh), b, Fg, Dim, light ? Color.FromArgb(250, 250, 252) : Color.FromArgb(30, 30, 34), s);
-            string big = b.HasBattery ? (int)Math.Round(b.Pct * 100) + "%" : "Corriente";
-            string small = !b.HasBattery ? "Sin batería" : b.Charging ? "Cargando" : b.Plugged ? "Conectada" : "Con batería";
-            using (var f = F(19f, true)) Txt(g, big, f, Fg, new RectangleF(r.X, r.Bottom - 50 * s, r.Width, 24 * s), StringAlignment.Center);
-            using (var f = F(11.5f)) Txt(g, small, f, Dim, new RectangleF(r.X, r.Bottom - 27 * s, r.Width, 16 * s), StringAlignment.Center);
+            var c = new PointF(r.X + r.Width / 2f, r.Y + r.Height * 0.44f);
+            float R = r.Width * 0.3f;
+            Color col = !b.HasBattery ? Dim : (b.Pct <= 0.2f && !b.Plugged ? Red : Green);
+            Ring(g, c, R, 7 * s, b.HasBattery ? b.Pct : 1f, col);
+
+            if (b.Plugged) Bolt(g, new PointF(c.X, c.Y - R * 0.52f), 16 * s, col);
+            string big = b.HasBattery ? ((int)Math.Round(b.Pct * 100)).ToString() : "—";
+            using (var f = F(28f, true))
+            {
+                var sz = g.MeasureString(big, f);
+                float y = c.Y - sz.Height / 2f + (b.Plugged ? 5 * s : 0);
+                Txt(g, big, f, Fg, new RectangleF(c.X - R, y, R * 2, sz.Height), StringAlignment.Center);
+                if (b.HasBattery)
+                    using (var fp = F(12f, true)) Txt(g, "%", fp, Dim, new RectangleF(c.X + sz.Width / 2f - 3 * s, y + 7 * s, 20 * s, 16 * s));
+            }
+            string small = !b.HasBattery ? "Sin batería" : b.Charging ? "Cargando" : b.Plugged ? "Conectada" : "Batería";
+            using (var f = F(12f)) Txt(g, small, f, Dim, new RectangleF(r.X, r.Bottom - 26 * s, r.Width, 16 * s), StringAlignment.Center);
+        }
+
+        static void Bolt(Graphics g, PointF center, float h, Color col)
+        {
+            float w = h * 0.62f, top = center.Y - h / 2f, cx = center.X;
+            var pts = new[] {
+                new PointF(cx + w * 0.12f, top), new PointF(cx - w * 0.5f, top + h * 0.56f), new PointF(cx - w * 0.02f, top + h * 0.56f),
+                new PointF(cx - w * 0.14f, top + h), new PointF(cx + w * 0.5f, top + h * 0.42f), new PointF(cx + w * 0.02f, top + h * 0.42f) };
+            using (var b = new SolidBrush(col)) g.FillPolygon(b, pts);
         }
     }
 
