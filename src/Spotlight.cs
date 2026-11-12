@@ -113,6 +113,7 @@ namespace MacDock
             string calc = TryCalc(q);
             if (calc != null) quick.Add(new Result { Title = "= " + calc, Sub = "Calculadora · Enter para copiar", Path = calc, Kind = 3 });
 
+            AppIndex.IconsUsedAt = DateTime.Now;
             var apps = AppIndex.Current ?? new List<AppEntry>();
             quick.AddRange(apps.Select(a => new { a, sc = Score(a.Name, q) }).Where(x => x.sc > 0).OrderByDescending(x => x.sc).ThenBy(x => x.a.Name.Length).Take(5)
                 .Select(x => new Result { Title = x.a.Name, Sub = "Aplicación", Path = x.a.Path, Kind = 0, App = x.a, Icon = x.a.SmallIcon }));

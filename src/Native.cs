@@ -322,6 +322,9 @@ namespace MacDock
                 if (!scr.Primary) return false;
                 int st;
                 if (SHQueryUserNotificationState(out st) == 0 && (st == 3 || st == 4)) return true;   // D3D exclusivo o modo presentacion
+                // Una ventana maximizada no es pantalla completa aunque no tenga barra de titulo clasica
+                // (WhatsApp, Discord, Spotify...): con la barra de Windows oculta cubre toda la pantalla y se confundia con un juego.
+                if (N.IsZoomed(fg)) return false;
                 // "Pantalla completa sin bordes": el area de la ventana (sin titulo) cubre toda la pantalla.
                 // Una ventana maximizada normal no la cubre (deja la barra superior y tiene titulo).
                 N.RECT c; if (!GetClientRect(fg, out c)) return false;

@@ -226,6 +226,7 @@ namespace MacDock
         bool loweredRefresh;
         // Modo claro/oscuro automatico y fondo dinamico (se revisa cada 30 s; no hace nada si no toca cambiar)
         DateTime lookAt = DateTime.MinValue;
+        DateTime trimAt = DateTime.MinValue;   // cada minuto: soltar iconos guardados que no se usan
         void UpdateLook()
         {
             try
@@ -1169,6 +1170,12 @@ namespace MacDock
                 if (DateTime.Now >= refreshCheckAt) { refreshCheckAt = DateTime.Now.AddSeconds(5); ApplyRefresh(); }
                 if (DateTime.Now >= napAt) { napAt = DateTime.Now.AddSeconds(3); UpdateNap(); }
                 if (DateTime.Now >= lookAt) { lookAt = DateTime.Now.AddSeconds(30); UpdateLook(); }
+                if (DateTime.Now >= trimAt)
+                {
+                    trimAt = DateTime.Now.AddMinutes(1);
+                    AppSwitcher.TrimIfIdle(TimeSpan.FromMinutes(10));
+                    AppIndex.ReleaseIconsIfIdle(TimeSpan.FromMinutes(10));
+                }
                 FixUnderMenuBar();
                 if (!hiddenFull && !fast.Enabled && mag > 0f && Cursor.Position != lastCursor) StartAnim();
                 RefreshRunning();
@@ -1843,6 +1850,7 @@ namespace MacDock
             fullApp = full;
             if (bar != null) bar.SetFull(full);
             if (macBtns != null) macBtns.SetPaused(full);
+            global::MacDock.Widgets.SetPaused(full);
         }
 
         float SlidePx { get { return slide * (BottomM + BarH + 8 * s); } }

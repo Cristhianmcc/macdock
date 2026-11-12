@@ -129,6 +129,7 @@ namespace MacDock
             ApplyFilter();
             if (keep != null) sel = view.FindIndex(a => string.Equals(a.Path, keep, StringComparison.OrdinalIgnoreCase));
             page = Math.Min(keepPage, Pages - 1); pos = page;
+            DirtyAll();
             StartIconWorker();
             Invalidate();
         }
@@ -141,8 +142,71 @@ namespace MacDock
                                .OrderByDescending(x => x.sc).ThenBy(x => x.a.Name.Length).Select(x => x.a).ToList();
             sel = q == "" ? -1 : (view.Count > 0 ? 0 : -1);
             page = 0; pos = 0;
+            DirtyAll();
             StartIconWorker();
             Invalidate();
+        }
+
+        // ---------- cada pagina se dibuja una vez en una imagen; al deslizar solo se mueven esas imagenes ----------
+        readonly Dictionary<int, Bitmap> pageCache = new Dictionary<int, Bitmap>();
+        readonly List<string> loadedPaths = new List<string>();   // iconos recien cargados (los llena el hilo de iconos)
+
+        RectangleF Band { get { return new RectangleF(0, grid.Y - 14 * s, scr.Width, grid.Height + 34 * s); } }
+        Rectangle BandRect { get { var b = Band; return new Rectangle(0, (int)b.Y - 1, scr.Width, (int)b.Height + 2); } }
+
+        void DirtyAll() { foreach (var b in pageCache.Values) b.Dispose(); pageCache.Clear(); }
+        void DirtyPage(int p) { Bitmap b; if (pageCache.TryGetValue(p, out b)) { b.Dispose(); pageCache.Remove(p); } }
+
+        Bitmap PageBitmap(int p)
+        {
+            Bitmap bmp;
+            if (pageCache.TryGetValue(p, out bmp)) return bmp;
+            // solo se guardan la pagina actual y sus vecinas
+            foreach (var k in pageCache.Keys.Where(k => Math.Abs(k - page) > 1).ToList()) DirtyPage(k);
+            var band = Band;
+            bmp = new Bitmap(scr.Width, (int)Math.Ceiling(band.Height), PixelFormat.Format32bppPArgb);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                using (var font = new Font(UiFont.Reg, 13f * s, FontStyle.Regular, GraphicsUnit.Pixel))
+                using (var shadow = new SolidBrush(Color.FromArgb(150, 0, 0, 0)))
+                using (var white = new SolidBrush(Color.FromArgb(245, 255, 255, 255)))
+                using (var sf = new StringFormat { Alignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
+                    for (int i = p * PerPage; i < Math.Min(view.Count, (p + 1) * PerPage); i++)
+                    {
+                        int k = i % PerPage;
+                        float cx = grid.X + (k % cols) * cellW, cy = grid.Y + (k / cols) * cellH - band.Y;
+                        var r = new RectangleF(cx + (cellW - iconPx) / 2f, cy + (cellH - iconPx - 26 * s) / 2f, iconPx, iconPx);
+                        if (i == sel)
+                        {
+                            var hr = RectangleF.Inflate(r, 12 * s, 10 * s); hr.Height += 24 * s;
+                            using (var path = Round(hr, 16 * s)) using (var b = new SolidBrush(Color.FromArgb(60, 255, 255, 255))) g.FillPath(b, path);
+                        }
+                        Bitmap ic; lock (iconLock) icons.TryGetValue(view[i].Path, out ic);
+                        if (ic != null) g.DrawImage(ic, r);
+                        else DrawPlaceholder(g, r, view[i].Name);
+                        var lr = new RectangleF(cx + 4 * s, r.Bottom + 8 * s, cellW - 8 * s, 18 * s);
+                        g.DrawString(view[i].Name, font, shadow, new RectangleF(lr.X, lr.Y + 1 * s, lr.Width, lr.Height), sf);
+                        g.DrawString(view[i].Name, font, white, lr, sf);
+                    }
+            }
+            pageCache[p] = bmp;
+            return bmp;
+        }
+
+        // el hilo de iconos avisa: se rehacen solo las paginas donde aparecen esos iconos
+        void IconsArrived()
+        {
+            List<string> list; lock (iconLock) { list = loadedPaths.ToList(); loadedPaths.Clear(); }
+            if (list.Count == 0 || IsDisposed) return;
+            var set = new HashSet<string>(list, StringComparer.OrdinalIgnoreCase);
+            var pages = new HashSet<int>();
+            for (int i = 0; i < view.Count; i++) if (set.Contains(view[i].Path)) pages.Add(i / PerPage);
+            foreach (var p in pages) DirtyPage(p);
+            if (pages.Count > 0) Invalidate(BandRect);
         }
 
         RectangleF CellRect(int idx)
@@ -185,12 +249,12 @@ namespace MacDock
                     if (next == null || closed) break;
                     var bmp = Shell.GetIcon(next.Path, px, 4) ?? Shell.GetIcon(next.Path, px, 0);
                     bool keep = false;
-                    lock (iconLock) { if (!closed && !icons.ContainsKey(next.Path)) { icons[next.Path] = bmp; keep = true; } }
+                    lock (iconLock) { if (!closed && !icons.ContainsKey(next.Path)) { icons[next.Path] = bmp; keep = true; loadedPaths.Add(next.Path); } }
                     if (!keep && bmp != null) bmp.Dispose();
-                    if (++sinceRefresh >= 6) { sinceRefresh = 0; try { BeginInvoke(new Action(Invalidate)); } catch { break; } }
+                    if (++sinceRefresh >= 6) { sinceRefresh = 0; try { BeginInvoke(new Action(IconsArrived)); } catch { break; } }
                 }
                 lock (iconLock) iconWorkerRunning = false;
-                try { BeginInvoke(new Action(Invalidate)); } catch { }
+                try { BeginInvoke(new Action(IconsArrived)); } catch { }
             });
             th.IsBackground = true; th.SetApartmentState(ApartmentState.STA); th.Start();
         }
@@ -216,8 +280,7 @@ namespace MacDock
             {
                 appear += (targetAppear - appear) * (closing ? 0.45f : 0.3f);
                 if (Math.Abs(appear - targetAppear) < 0.02f) appear = targetAppear;
-                Opacity = appear;
-                busy = true;
+                Opacity = appear;   // Windows funde la ventana ya dibujada: no hace falta redibujar
             }
             if (closing && appear <= 0f) { anim.Stop(); Close(); return; }
             if (!down && Math.Abs(pos - page) > 0.0005f)
@@ -226,7 +289,8 @@ namespace MacDock
                 if (Math.Abs(pos - page) < 0.002f) pos = page;
                 busy = true;
             }
-            if (busy) Invalidate(); else anim.Stop();
+            if (busy) Invalidate(BandRect);
+            else if (Math.Abs(appear - targetAppear) <= 0.001f) anim.Stop();
         }
 
         void Kick() { if (!anim.Enabled) anim.Start(); }
@@ -236,6 +300,7 @@ namespace MacDock
             p = Math.Max(0, Math.Min(Pages - 1, p));
             if (p == page) return;
             page = p; Kick(); StartIconWorker();
+            Invalidate();   // tambien los puntitos de abajo
         }
 
         public void FadeClose()
@@ -298,10 +363,12 @@ namespace MacDock
         void MoveSel(int d)
         {
             if (view.Count == 0) return;
+            if (sel >= 0) DirtyPage(sel / PerPage);
             if (sel < 0) sel = Math.Min(view.Count - 1, page * PerPage);
             else sel = Math.Max(0, Math.Min(view.Count - 1, sel + d));
+            DirtyPage(sel / PerPage);
             GoPage(sel / PerPage);
-            Invalidate();
+            Invalidate(BandRect);
         }
 
         // ---------- mouse: clic, arrastrar para cambiar de pagina, rueda ----------
@@ -322,7 +389,7 @@ namespace MacDock
             {
                 // resistencia al llegar a la primera o la ultima pagina
                 if ((page == 0 && dx > 0) || (page == Pages - 1 && dx < 0)) dx *= 0.3f;
-                dragPx = dx; Invalidate();
+                dragPx = dx; Invalidate(BandRect);
             }
         }
 
@@ -404,42 +471,11 @@ namespace MacDock
 
             DrawSearch(g);
 
-            // al abrir, los iconos llegan desde un poco mas grandes (como en Mac)
-            float zoom = 1f + 0.08f * (1f - appear);
-            var state = g.Save();
-            if (zoom != 1f)
-            {
-                g.TranslateTransform(scr.Width / 2f, scr.Height / 2f);
-                g.ScaleTransform(zoom, zoom);
-                g.TranslateTransform(-scr.Width / 2f, -scr.Height / 2f);
-            }
-
             float visible = pos - dragPx / scr.Width;
             int pFrom = Math.Max(0, (int)Math.Floor(visible)), pTo = Math.Min(Pages - 1, (int)Math.Ceiling(visible));
-            using (var font = new Font(UiFont.Reg, 13f * s, FontStyle.Regular, GraphicsUnit.Pixel))
-            using (var shadow = new SolidBrush(Color.FromArgb(150, 0, 0, 0)))
-            using (var white = new SolidBrush(Color.FromArgb(245, 255, 255, 255)))
-            using (var sf = new StringFormat { Alignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
-            {
-                for (int p = pFrom; p <= pTo; p++)
-                    for (int i = p * PerPage; i < Math.Min(view.Count, (p + 1) * PerPage); i++)
-                    {
-                        var r = IconRect(i);
-                        if (r.Right < -cellW || r.Left > scr.Width + cellW) continue;
-                        if (i == sel)
-                        {
-                            var hr = RectangleF.Inflate(r, 12 * s, 10 * s); hr.Height += 24 * s;
-                            using (var path = Round(hr, 16 * s)) using (var b = new SolidBrush(Color.FromArgb(60, 255, 255, 255))) g.FillPath(b, path);
-                        }
-                        Bitmap ic; lock (iconLock) icons.TryGetValue(view[i].Path, out ic);
-                        if (ic != null) g.DrawImage(ic, r);
-                        else DrawPlaceholder(g, r, view[i].Name);
-                        var lr = new RectangleF(r.X - (cellW - iconPx) / 2f + 4 * s, r.Bottom + 8 * s, cellW - 8 * s, 18 * s);
-                        g.DrawString(view[i].Name, font, shadow, new RectangleF(lr.X, lr.Y + 1 * s, lr.Width, lr.Height), sf);
-                        g.DrawString(view[i].Name, font, white, lr, sf);
-                    }
-            }
-            g.Restore(state);
+            int bandY = (int)Band.Y;
+            for (int p = pFrom; p <= pTo && view.Count > 0; p++)
+                g.DrawImageUnscaled(PageBitmap(p), (int)Math.Round((p - visible) * scr.Width), bandY);
 
             if (view.Count == 0)
                 using (var f = new Font(UiFont.Reg, 20f * s, FontStyle.Regular, GraphicsUnit.Pixel))
@@ -510,6 +546,7 @@ namespace MacDock
             anim.Stop(); anim.Dispose();
             if (bg != null) { bg.Dispose(); bg = null; }
             lock (iconLock) { foreach (var b in icons.Values) if (b != null) b.Dispose(); icons.Clear(); }
+            DirtyAll();
             base.OnFormClosed(e);
         }
     }

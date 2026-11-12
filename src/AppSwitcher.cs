@@ -28,6 +28,14 @@ namespace MacDock
         static readonly Dictionary<string, Bitmap> iconCache = new Dictionary<string, Bitmap>(StringComparer.OrdinalIgnoreCase);
         static readonly object cacheLock = new object();
         static readonly uint myPid = (uint)Process.GetCurrentProcess().Id;
+        static DateTime lastUsed = DateTime.MinValue;
+
+        // Si no lo usas en un rato, suelta los iconos guardados (los vuelve a cargar la proxima vez).
+        public static void TrimIfIdle(TimeSpan idle)
+        {
+            if (IsOpen || DateTime.Now - lastUsed < idle) return;
+            lock (cacheLock) { if (iconCache.Count == 0) return; foreach (var b in iconCache.Values) if (b != null) b.Dispose(); iconCache.Clear(); }
+        }
 
         [DllImport("user32.dll")] static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
         [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
@@ -53,7 +61,7 @@ namespace MacDock
                 {
                     var list = RunningApps();
                     if (list.Count == 0) { IsOpen = false; return; }
-                    IsOpen = true;
+                    IsOpen = true; lastUsed = DateTime.Now;
                     // Tecla "fantasma" sin uso: evita que al soltar Alt la app de enfrente active su barra de menus.
                     N.keybd_event(0xE8, 0, 0, IntPtr.Zero); N.keybd_event(0xE8, 0, 2, IntPtr.Zero);
                     cur = new AppSwitcher(list, light, s);
@@ -256,7 +264,7 @@ namespace MacDock
             var missing = new List<string>();
             lock (cacheLock)
             {
-                if (iconCache.Count > 60) { foreach (var b in iconCache.Values) if (b != null) b.Dispose(); iconCache.Clear(); }
+                if (iconCache.Count > 30) { foreach (var b in iconCache.Values) if (b != null) b.Dispose(); iconCache.Clear(); }
                 foreach (var a in apps) if (a.IconPath != null && !iconCache.ContainsKey(a.IconPath) && !missing.Contains(a.IconPath)) missing.Add(a.IconPath);
             }
             if (missing.Count == 0) return;

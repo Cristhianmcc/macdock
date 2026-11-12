@@ -62,6 +62,15 @@ namespace MacDock
         // El Explorador se reinicio: hay que volver a pegarlos al escritorio nuevo.
         public static void Restart() { if (!running) return; Stop(); Start(s, light); }
 
+        // Con un juego o video a pantalla completa no se ven: se detienen sus relojes para no gastar nada.
+        static bool paused;
+        public static void SetPaused(bool p)
+        {
+            if (p == paused) return;
+            paused = p;
+            foreach (var w in live) w.SetPaused(p);
+        }
+
         public static void SetTheme(bool lightTheme)
         {
             light = lightTheme;
@@ -111,6 +120,7 @@ namespace MacDock
             w.Pos = Clamp(v != null && v.Pos.HasValue ? v.Pos.Value : DefaultPos(kind), w.CardSize);
             live.Add(w);
             w.ShowOnDesktop();
+            if (paused) w.SetPaused(true);
         }
 
         // Posicion inicial: columna a la izquierda, debajo de la barra superior (como en macOS).
@@ -230,6 +240,7 @@ namespace MacDock
         }
 
         public void SetTheme(bool lightTheme) { light = lightTheme; Redraw(true); }
+        public void SetPaused(bool p) { if (p) timer.Stop(); else { timer.Start(); Redraw(false); } }
 
         protected override bool ShowWithoutActivation { get { return true; } }
         protected override CreateParams CreateParams

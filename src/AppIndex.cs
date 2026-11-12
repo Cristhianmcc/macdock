@@ -70,6 +70,18 @@ namespace MacDock
             th.IsBackground = true; th.SetApartmentState(ApartmentState.STA); th.Start();
         }
 
+        // Spotlight guarda los iconos pequenos de las apps que encuentra; si no lo usas en un rato, se sueltan.
+        public static DateTime IconsUsedAt = DateTime.MinValue;
+        public static void ReleaseIconsIfIdle(TimeSpan idle)
+        {
+            if (DateTime.Now - IconsUsedAt < idle || Spotlight.Current != null) return;
+            lock (Lock)
+            {
+                if (apps == null) return;
+                foreach (var e in apps) if (e.SmallIcon != null) { e.SmallIcon.Dispose(); e.SmallIcon = null; }
+            }
+        }
+
         public static void Launch(AppEntry a)
         {
             try
