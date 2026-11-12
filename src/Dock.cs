@@ -39,10 +39,11 @@ namespace MacDock
         [STAThread]
         static void Main(string[] args)
         {
-            if (args.Length > 0 && (args[0] == "--finder" || args[0] == "--spotlight"))
+            if (args.Length > 0 && (args[0] == "--finder" || args[0] == "--spotlight" || args[0] == "--launchpad"))
             {
                 IntPtr h = N.FindWindow(null, "MacDockWindow");
-                if (h != IntPtr.Zero) N.PostMessage(h, N.RegisterWindowMessage(args[0] == "--finder" ? "MacDockOpenFinder" : "MacDockOpenSpotlight"), IntPtr.Zero, IntPtr.Zero);
+                string msg = args[0] == "--finder" ? "MacDockOpenFinder" : args[0] == "--spotlight" ? "MacDockOpenSpotlight" : "MacDockOpenLaunchpad";
+                if (h != IntPtr.Zero) N.PostMessage(h, N.RegisterWindowMessage(msg), IntPtr.Zero, IntPtr.Zero);
                 else if (args[0] == "--finder") System.Diagnostics.Process.Start("explorer.exe");
                 return;
             }
@@ -95,6 +96,8 @@ namespace MacDock
         public bool QuickLookExplorer = true;
         public bool MacButtons = true;
         public bool DesktopMenu = true;
+        public bool Launchpad = true;       // el icono de Inicio del dock abre Launchpad (Alt + Shift + Espacio)
+        public bool AppSwitcher = true;     // Alt + Tab muestra el selector de apps estilo Cmd + Tab
         public TimeSpan LightFrom = new TimeSpan(7, 0, 0);
         public TimeSpan DarkFrom = new TimeSpan(18, 30, 0);
         public bool HideTaskbar = true;
@@ -127,6 +130,8 @@ namespace MacDock
                 else if (k == "quicklookexplorer") QuickLookExplorer = v == "1";
                 else if (k == "macbuttons") MacButtons = v == "1";
                 else if (k == "desktopmenu") DesktopMenu = v == "1";
+                else if (k == "launchpad") Launchpad = v == "1";
+                else if (k == "appswitcher") AppSwitcher = v == "1";
                 else if (k == "lightfrom") { TimeSpan t; if (TimeSpan.TryParse(v, out t)) LightFrom = t; }
                 else if (k == "darkfrom") { TimeSpan t; if (TimeSpan.TryParse(v, out t)) DarkFrom = t; }
             }
@@ -155,6 +160,8 @@ namespace MacDock
                     "QuickLookExplorer=" + (QuickLookExplorer ? 1 : 0) + "\r\n" +
                     "MacButtons=" + (MacButtons ? 1 : 0) + "\r\n" +
                     "DesktopMenu=" + (DesktopMenu ? 1 : 0) + "\r\n" +
+                    "Launchpad=" + (Launchpad ? 1 : 0) + "\r\n" +
+                    "AppSwitcher=" + (AppSwitcher ? 1 : 0) + "\r\n" +
                     "ReserveSpace=" + (ReserveSpace ? 1 : 0) + "\r\n" +
                     "HideTaskbar=" + (HideTaskbar ? 1 : 0) + "\r\n");
             }
@@ -260,13 +267,17 @@ namespace MacDock
         [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info);
 
         LowLevelKeyboardProc kbProc; IntPtr kbHook = IntPtr.Zero;
-        int msgFinder = N.RegisterWindowMessage("MacDockOpenFinder"), msgSpot = N.RegisterWindowMessage("MacDockOpenSpotlight");
+        int msgFinder = N.RegisterWindowMessage("MacDockOpenFinder"), msgSpot = N.RegisterWindowMessage("MacDockOpenSpotlight"), msgLaunchpad = N.RegisterWindowMessage("MacDockOpenLaunchpad");
+        bool KeyHookWanted { get { return cfg.QuickLookExplorer || cfg.AppSwitcher; } }
+        void SetLaunchpadKey(bool on) { if (on) RegisterHotKey(Handle, 8, 0x0001 | 0x0004 | 0x4000, 0x20); else UnregisterHotKey(Handle, 8); }   // Alt + Shift + Espacio
         FileSystemWatcher dlWatcher;
 
         void InitMacFeatures()
         {
             if (cfg.SpotlightKey) RegisterHotKey(Handle, 7, 0x0001 | 0x4000, 0x20);   // Alt + Espacio
-            if (cfg.QuickLookExplorer) SetKeyHook(true);
+            if (cfg.Launchpad) SetLaunchpadKey(true);
+            if (KeyHookWanted) SetKeyHook(true);
+            AppIndex.EnsureAsync(null);   // la lista de apps queda lista para Launchpad y Spotlight
             AllowDrop = true;
             SetMacButtons(cfg.MacButtons);
             SetDesktopMenu(cfg.DesktopMenu);
@@ -392,18 +403,57 @@ namespace MacDock
         void StopMacFeatures()
         {
             try { UnregisterHotKey(Handle, 7); } catch { }
+            try { UnregisterHotKey(Handle, 8); } catch { }
+            try { AppSwitcher.Cancel(); } catch { }
             try { SetKeyHook(false); } catch { }
             try { if (dlWatcher != null) dlWatcher.Dispose(); } catch { }
             try { SetMacButtons(false); } catch { }
             try { SetDesktopMenu(false); } catch { }
         }
 
-        // Espacio en el Explorador (lista de archivos) = Quick Look del archivo seleccionado. Se ignora si estas escribiendo.
+        // Gancho de teclado. Solo mira dos cosas y deja pasar todo lo demas sin guardarlo:
+        //  - Alt + Tab: selector de apps estilo Cmd + Tab (AppSwitcher.cs)
+        //  - Espacio en el Explorador (lista de archivos): Quick Look del archivo seleccionado. Se ignora si estas escribiendo.
         IntPtr KeyboardHook(int nCode, IntPtr wParam, IntPtr lParam)
         {
             try
             {
-                if (nCode >= 0 && (wParam.ToInt32() == 0x100) && Marshal.ReadInt32(lParam) == 0x20)
+                if (nCode >= 0 && cfg.AppSwitcher)
+                {
+                    int msg = wParam.ToInt32(), vk = Marshal.ReadInt32(lParam), flags = Marshal.ReadInt32(lParam, 8);
+                    bool injected = (flags & 0x10) != 0, keyDown = msg == 0x100 || msg == 0x104, keyUp = msg == 0x101 || msg == 0x105;
+                    if (!injected)
+                    {
+                        // Alt + Tab (sin Ctrl ni Windows: Ctrl+Alt+Tab sigue siendo el de Windows)
+                        if (vk == 0x09 && keyDown && (flags & 0x20) != 0 && (GetAsyncKeyState(0x11) & 0x8000) == 0 &&
+                            (GetAsyncKeyState(0x5B) & 0x8000) == 0 && (GetAsyncKeyState(0x5C) & 0x8000) == 0)
+                        {
+                            int dir = (GetAsyncKeyState(0x10) & 0x8000) != 0 ? -1 : 1;
+                            AppSwitcher.IsOpen = true;   // ya aqui, para no perder un Alt soltado muy rapido
+                            BeginInvoke(new Action(() => AppSwitcher.Step(dir, light, s)));
+                            return new IntPtr(1);
+                        }
+                        if (AppSwitcher.IsOpen)
+                        {
+                            if (keyUp && (vk == 0x12 || vk == 0xA4 || vk == 0xA5)) BeginInvoke(new Action(AppSwitcher.Commit));   // soltar Alt (se deja pasar)
+                            else if (keyDown)
+                            {
+                                Action a = null;
+                                switch (vk)
+                                {
+                                    case 0x1B: a = AppSwitcher.Cancel; break;                       // Esc
+                                    case 0x0D: a = AppSwitcher.Commit; break;                       // Enter
+                                    case 0x51: a = AppSwitcher.QuitSelected; break;                 // Q
+                                    case 0x48: a = AppSwitcher.HideSelected; break;                 // H
+                                    case 0x25: case 0x26: a = () => AppSwitcher.Step(-1, light, s); break;   // flechas
+                                    case 0x27: case 0x28: a = () => AppSwitcher.Step(1, light, s); break;
+                                }
+                                if (a != null) { BeginInvoke(a); return new IntPtr(1); }
+                            }
+                        }
+                    }
+                }
+                if (nCode >= 0 && cfg.QuickLookExplorer && (wParam.ToInt32() == 0x100) && Marshal.ReadInt32(lParam) == 0x20)
                 {
                     bool mods = (GetAsyncKeyState(0x10) & 0x8000) != 0 || (GetAsyncKeyState(0x11) & 0x8000) != 0 || (GetAsyncKeyState(0x12) & 0x8000) != 0 || (GetAsyncKeyState(0x5B) & 0x8000) != 0;
                     if (!mods)
@@ -927,7 +977,7 @@ namespace MacDock
 
             if (startItem == null)
             {
-                startItem = new DockItem { Kind = Kind.Start, Name = "Inicio" };
+                startItem = new DockItem { Kind = Kind.Start, Name = cfg.Launchpad ? "Launchpad" : "Inicio" };
                 clockItem = new DockItem { Kind = Kind.Clock, Name = "Centro de control" };
                 string dl = N.Downloads();
                 downloadsItem = new DockItem { Kind = Kind.Downloads, Name = "Descargas", Target = dl, Icon = Shell.GetIcon(dl, IconPx) };
@@ -1302,6 +1352,7 @@ namespace MacDock
 
         void DrawStart(Graphics g, RectangleF r)
         {
+            if (cfg.Launchpad) { DrawLaunchpad(g, r); return; }
             using (var p = Round(r, r.Width * 0.225f))
             using (var b = new LinearGradientBrush(r, Color.FromArgb(77, 163, 255), Color.FromArgb(16, 92, 214), 90f))
                 g.FillPath(b, p);
@@ -1312,6 +1363,26 @@ namespace MacDock
                 g.FillRectangle(w, ox, oy, q, q); g.FillRectangle(w, ox + q + gap, oy, q, q);
                 g.FillRectangle(w, ox, oy + q + gap, q, q); g.FillRectangle(w, ox + q + gap, oy + q + gap, q, q);
             }
+        }
+
+        // Icono propio de Launchpad: placa gris oscura con una cuadricula de 3 x 3 cuadritos de colores.
+        void DrawLaunchpad(Graphics g, RectangleF r)
+        {
+            using (var p = Round(r, r.Width * 0.225f))
+            {
+                using (var b = new LinearGradientBrush(r, Color.FromArgb(92, 96, 108), Color.FromArgb(38, 40, 48), 90f)) g.FillPath(b, p);
+                using (var pen = new Pen(Color.FromArgb(60, 255, 255, 255), Math.Max(1f, s * 0.6f))) g.DrawPath(pen, p);
+            }
+            Color[] cs = {
+                Color.FromArgb(255, 94, 87), Color.FromArgb(255, 189, 46), Color.FromArgb(40, 205, 65),
+                Color.FromArgb(10, 132, 255), Color.FromArgb(191, 90, 242), Color.FromArgb(255, 55, 95),
+                Color.FromArgb(100, 210, 255), Color.FromArgb(255, 159, 10), Color.FromArgb(48, 209, 88) };
+            float q = r.Width * 0.17f, gap = r.Width * 0.075f;
+            float ox = r.X + (r.Width - q * 3 - gap * 2) / 2, oy = r.Y + (r.Height - q * 3 - gap * 2) / 2;
+            for (int i = 0; i < 9; i++)
+                using (var b = new SolidBrush(cs[i]))
+                using (var p = Round(new RectangleF(ox + (i % 3) * (q + gap), oy + (i / 3) * (q + gap), q, q), q * 0.28f))
+                    g.FillPath(b, p);
         }
 
         void DrawClock(Graphics g, RectangleF r)
@@ -1436,7 +1507,7 @@ namespace MacDock
         {
             switch (it.Kind)
             {
-                case Kind.Start: N.PressKeys(0x5B); return;
+                case Kind.Start: if (cfg.Launchpad) Launchpad.Toggle(s); else N.PressKeys(0x5B); return;
                 case Kind.Clock: N.PressKeys(0x5B, 0x41); return;
                 case Kind.Downloads: it.Badge = 0; Render(); ToggleStack(it); return;
                 case Kind.Stack: ToggleStack(it); return;
@@ -1534,6 +1605,12 @@ namespace MacDock
                 Add(m, "Vaciar papelera...", () => { N.SHEmptyRecycleBin(Handle, null, 0); });
                 m.Items.Add(new ToolStripSeparator());
             }
+            else if (it != null && it.Kind == Kind.Start)
+            {
+                Add(m, "Abrir Launchpad (Alt + Shift + Espacio)", () => Launchpad.Toggle(s), cfg.Launchpad);
+                Add(m, "Menú Inicio de Windows", () => N.PressKeys(0x5B), !cfg.Launchpad);
+                m.Items.Add(new ToolStripSeparator());
+            }
             else if (it != null && it.Kind == Kind.Clock)
             {
                 Add(m, "Wi-Fi, volumen y bateria", () => N.PressKeys(0x5B, 0x41), true);
@@ -1585,8 +1662,20 @@ namespace MacDock
             addOpt("Vista rapida con Espacio en el Explorador", cfg.QuickLookExplorer, () =>
             {
                 cfg.QuickLookExplorer = !cfg.QuickLookExplorer; cfg.Save();
-                if (cfg.QuickLookExplorer) SetKeyHook(true);
-                else SetKeyHook(false);
+                SetKeyHook(KeyHookWanted);
+            });
+            addOpt("Launchpad en el dock (Alt + Shift + Espacio)", cfg.Launchpad, () =>
+            {
+                cfg.Launchpad = !cfg.Launchpad; cfg.Save();
+                SetLaunchpadKey(cfg.Launchpad);
+                if (startItem != null) startItem.Name = cfg.Launchpad ? "Launchpad" : "Inicio";
+                Render();
+            });
+            addOpt("Alt + Tab estilo Mac (una app por icono)", cfg.AppSwitcher, () =>
+            {
+                cfg.AppSwitcher = !cfg.AppSwitcher; cfg.Save();
+                if (!cfg.AppSwitcher) AppSwitcher.Cancel();
+                SetKeyHook(KeyHookWanted);
             });
             addOpt("Modo claro de dia, oscuro de noche", cfg.AutoTheme, () =>
             {
@@ -1618,6 +1707,7 @@ namespace MacDock
             addOpt("Importar de nuevo apps de la barra", false, () => { ImportTaskbarPins(); ScheduleReload(); });
             Add(m, "Abrir Finder", () => Finder.OpenOrFocus(light, s));
             Add(m, "Buscar con Spotlight (Alt + Espacio)", () => Spotlight.Toggle(light, s));
+            Add(m, "Abrir Launchpad", () => Launchpad.Toggle(s));
             if (DockerRunning()) Add(m, "Apagar Docker y WSL (libera RAM y bateria)", () => StopDocker());
             m.Items.Add(opts);
             Add(m, "Cerrar dock y volver a la barra de Windows", () => Close());
@@ -1776,6 +1866,7 @@ namespace MacDock
             if (m.Msg == 0x0312 && m.WParam.ToInt32() == 7) { Spotlight.Toggle(light, s); return; }
             if (msgFinder != 0 && m.Msg == msgFinder) { Finder.OpenOrFocus(light, s); return; }
             if (msgSpot != 0 && m.Msg == msgSpot) { Spotlight.Toggle(light, s); return; }
+            if ((m.Msg == 0x0312 && m.WParam.ToInt32() == 8) || (msgLaunchpad != 0 && m.Msg == msgLaunchpad)) { Launchpad.Toggle(s); return; }
             if (m.Msg == appBarMsg && appBarMsg != 0)
             {
                 if (m.WParam.ToInt32() == 1) SetAppBarPos();

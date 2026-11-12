@@ -6,7 +6,7 @@
 
 **Convierte tu Windows 10/11 en algo que se ve y se siente como macOS, sin instalar programas pesados.**
 
-Dock con efecto lupa · Barra superior · Finder · Spotlight · Quick Look · Botones de colores · Más batería
+Dock con efecto lupa · Launchpad · Cmd+Tab · Barra superior · Finder · Spotlight · Quick Look · Botones de colores · Más batería
 
 ~**15–20 MB de RAM** en total · ~0 % de CPU en reposo · Sin administrador · 100 % reversible
 
@@ -59,11 +59,24 @@ Incluye además un **menú de ajustes** (un script de PowerShell) que cambia la 
 - Copiar, cortar, pegar, renombrar, papelera, arrastrar y soltar, **Quick Look** y "Abrir terminal aquí".
 - Se actualiza solo cuando cambia la carpeta. Solo usa memoria mientras está abierto.
 
+### 🚀 Launchpad (icono del dock o Alt + Shift + Espacio)
+- **Todas tus apps** en una cuadrícula a pantalla completa sobre tu fondo desenfocado, incluidas las de la Tienda (Calculadora, Configuración, Fotos…).
+- **Páginas** con puntitos abajo: cambia con la rueda del mouse, deslizando en el trackpad, arrastrando o con las flechas.
+- **Escribe para buscar** en cuanto se abre; **Enter** abre la primera app y **Esc** borra la búsqueda o cierra.
+- Clic en un espacio vacío para cerrar, como en Mac. Solo usa memoria mientras está abierto.
+- También está en el menú Inicio como **Launchpad**. Clic derecho en su icono del dock → "Menú Inicio de Windows" si lo necesitas.
+
+### ⌘ Selector de apps estilo Cmd + Tab (Alt + Tab)
+- **Un icono por app**, no por ventana, de la más reciente a la más antigua. Un toque rápido de Alt + Tab te regresa a la app anterior sin mostrar el panel.
+- Mientras mantienes **Alt**: **Tab** / **Shift + Tab** o las flechas para moverte, **Q** cierra la app, **H** la minimiza y **Esc** cancela. También puedes elegir con el mouse.
+- Al soltar Alt, la app elegida pasa al frente **con todas sus ventanas**.
+- **Ctrl + Alt + Tab** sigue abriendo el selector de Windows, y se puede apagar en Opciones del dock.
+
 ### 🔍 Spotlight (Alt + Espacio)
 
 <img src="docs/img/spotlight.png" width="640" alt="Spotlight">
 
-- Busca **apps**, **archivos y carpetas** (usa el índice que Windows ya tiene), **ajustes** de Windows y hace **cálculos** (`25*4` → `100`).
+- Busca **apps** (también las de la Tienda), **archivos y carpetas** (usa el índice que Windows ya tiene), **ajustes** de Windows y hace **cálculos** (`25*4` → `100`).
 
 ### 👀 Quick Look (Espacio)
 - Selecciona un archivo y presiona **Espacio**: vista previa grande de fotos, texto y código, y PDF/Word/Excel con los visores de Windows. Funciona en el Finder, en las pilas **y en el Explorador de Windows**.
@@ -140,6 +153,8 @@ Cualquiera de estas opciones deja **Windows exactamente como estaba** (barra de 
 | Atajo | Acción |
 |---|---|
 | **Alt + Espacio** | Spotlight |
+| **Alt + Shift + Espacio** | Launchpad |
+| **Alt + Tab** | Selector de apps (Q cierra, H minimiza, Esc cancela) |
 | **Espacio** | Quick Look del archivo seleccionado |
 | **Win + V** | Historial del portapapeles (se activa en los ajustes) |
 | **Shift + clic derecho** | Menú completo de Windows |
@@ -185,6 +200,9 @@ El resultado queda en `dist\` y en `descargas\MacDock-Instalador.zip`.
 | `src/MenuBar.cs` | La barra superior |
 | `src/Finder.cs` | El explorador de archivos |
 | `src/Spotlight.cs` | El buscador (Alt + Espacio) |
+| `src/Launchpad.cs` | Launchpad: todas las apps a pantalla completa |
+| `src/AppSwitcher.cs` | El selector de apps estilo Cmd + Tab (Alt + Tab) |
+| `src/AppIndex.cs` | La lista de apps instaladas que comparten Launchpad y Spotlight |
 | `src/QuickLook.cs` | La vista rápida (Espacio) |
 | `src/MacButtons.cs` | Los botones de colores sobre las ventanas |
 | `src/Stack.cs` | Las pilas del Escritorio y Descargas |

@@ -12,7 +12,7 @@ $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if (-not (Test-Path $csc)) { throw "No se encontro el compilador de C# de .NET Framework 4 ($csc)." }
 
 New-Item -ItemType Directory -Force $build, $dist | Out-Null
-$cs = "Native.cs", "Dock.cs", "Setup.cs", "Saver.cs", "Stack.cs", "MenuBar.cs", "Ui.cs", "FileOps.cs", "QuickLook.cs", "Spotlight.cs", "Finder.cs", "MacButtons.cs", "ShellMenu.cs" | ForEach-Object { Join-Path $src $_ }
+$cs = "Native.cs", "Dock.cs", "Setup.cs", "Saver.cs", "Stack.cs", "MenuBar.cs", "Ui.cs", "FileOps.cs", "QuickLook.cs", "Spotlight.cs", "Finder.cs", "MacButtons.cs", "ShellMenu.cs", "AppIndex.cs", "Launchpad.cs", "AppSwitcher.cs" | ForEach-Object { Join-Path $src $_ }
 $res = @(
     "/resource:$src\ajustes.ps1,ajustes.ps1",
     "/resource:$src\fonts\Inter-Regular.ttf,Inter-Regular.ttf",

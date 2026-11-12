@@ -30,11 +30,7 @@ namespace MacDock
             N.SetForegroundWindow(Current.Handle);
         }
 
-        class Result { public string Title, Sub, Path, Args; public Bitmap Icon; public int Kind; }   // Kind: 0 app, 1 archivo, 2 carpeta, 3 calculo, 4 ajuste
-
-        static List<Result> appIndex;
-        static DateTime appIndexAt;
-        static readonly object Lock = new object();
+        class Result { public string Title, Sub, Path, Args; public Bitmap Icon; public int Kind; public AppEntry App; }   // Kind: 0 app, 1 archivo, 2 carpeta, 3 calculo, 4 ajuste
 
         static readonly string[][] SettingsList = {
             new[] { "Configuración", "ms-settings:" }, new[] { "Wi-Fi", "ms-settings:network-wifi" }, new[] { "Bluetooth", "ms-settings:bluetooth" },
@@ -96,56 +92,14 @@ namespace MacDock
         protected override void OnShown(EventArgs e) { base.OnShown(e); box.Focus(); }
         protected override void OnDeactivate(EventArgs e) { base.OnDeactivate(e); Close(); }
 
-        // ---------- indice de apps (menu Inicio + escritorio) ----------
+        // ---------- indice de apps (compartido con Launchpad, ver AppIndex.cs) ----------
         static void EnsureAppIndexAsync()
         {
-            lock (Lock) { if (appIndex != null && (DateTime.Now - appIndexAt).TotalMinutes < 10) return; }
-            var th = new Thread(() =>
+            AppIndex.EnsureAsync(() =>
             {
-                var list = new List<Result>();
-                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var dirs = new[] {
-                    Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu),
-                    Environment.GetFolderPath(Environment.SpecialFolder.StartMenu),
-                    Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
-                    Path.Combine(Program.DataDir, "Apps") };
-                foreach (var d in dirs)
-                {
-                    if (!Directory.Exists(d)) continue;
-                    var files = new List<string>();
-                    bool deep = d.IndexOf("Start Menu", StringComparison.OrdinalIgnoreCase) >= 0;   // del Escritorio y del dock solo el primer nivel
-                    SafeFind(d, files, deep ? 0 : 99);
-                    foreach (var f in files)
-                    {
-                        string name = Path.GetFileNameWithoutExtension(f);
-                        string low = name.ToLowerInvariant();
-                        if (low.Contains("uninstall") || low.Contains("desinstal") || low.Contains("readme") || low.Contains("léame") || low.Contains("help") || low.Contains("ayuda")) continue;
-                        if (!seen.Add(name)) continue;
-                        list.Add(new Result { Title = name, Sub = "Aplicación", Path = f, Kind = 0 });
-                    }
-                }
-                lock (Lock) { appIndex = list; appIndexAt = DateTime.Now; }
                 var cur = Current;
                 if (cur != null && !cur.IsDisposed) try { cur.BeginInvoke(new Action(() => { if (!cur.IsDisposed && cur.box.Text.Trim() != "") cur.Search(cur.box.Text); })); } catch { }
             });
-            th.IsBackground = true; th.Start();
-        }
-
-        // recorre carpetas saltando las protegidas y los enlaces antiguos (como "Programas")
-        static void SafeFind(string dir, List<string> outList, int depth)
-        {
-            if (depth > 6 && depth < 99) return;
-            try
-            {
-                foreach (var f in Directory.GetFiles(dir)) { string e = Path.GetExtension(f).ToLowerInvariant(); if (e == ".lnk" || e == ".url") outList.Add(f); }
-                if (depth >= 99) return;
-                foreach (var d in Directory.GetDirectories(dir))
-                {
-                    try { if ((File.GetAttributes(d) & FileAttributes.ReparsePoint) != 0) continue; } catch { continue; }
-                    SafeFind(d, outList, depth + 1);
-                }
-            }
-            catch { }
         }
 
         // ---------- busqueda ----------
@@ -159,8 +113,9 @@ namespace MacDock
             string calc = TryCalc(q);
             if (calc != null) quick.Add(new Result { Title = "= " + calc, Sub = "Calculadora · Enter para copiar", Path = calc, Kind = 3 });
 
-            List<Result> apps; lock (Lock) apps = appIndex ?? new List<Result>();
-            quick.AddRange(apps.Select(a => new { a, sc = Score(a.Title, q) }).Where(x => x.sc > 0).OrderByDescending(x => x.sc).ThenBy(x => x.a.Title.Length).Take(5).Select(x => x.a));
+            var apps = AppIndex.Current ?? new List<AppEntry>();
+            quick.AddRange(apps.Select(a => new { a, sc = Score(a.Name, q) }).Where(x => x.sc > 0).OrderByDescending(x => x.sc).ThenBy(x => x.a.Name.Length).Take(5)
+                .Select(x => new Result { Title = x.a.Name, Sub = "Aplicación", Path = x.a.Path, Kind = 0, App = x.a, Icon = x.a.SmallIcon }));
             foreach (var st in SettingsList) if (Score(st[0], q) > 0) quick.Add(new Result { Title = st[0], Sub = "Ajuste de Windows", Path = st[1], Kind = 4 });
             SetResults(quick);
 
@@ -173,7 +128,7 @@ namespace MacDock
             th.IsBackground = true; th.Start();
         }
 
-        static int Score(string title, string q)
+        internal static int Score(string title, string q)
         {
             string t = title.ToLowerInvariant(), k = q.ToLowerInvariant();
             if (t == k) return 100;
@@ -252,6 +207,13 @@ namespace MacDock
                 {
                     if (IsDisposed) return;
                     if (r.Icon != null || r.Kind == 3) continue;
+                    if (r.App != null)
+                    {
+                        if (r.App.SmallIcon == null) r.App.SmallIcon = Shell.GetIcon(r.App.Path, 48, 4);   // se guarda para la proxima busqueda
+                        r.Icon = r.App.SmallIcon;
+                        try { BeginInvoke(new Action(Invalidate)); } catch { }
+                        continue;
+                    }
                     string p = r.Kind == 4 ? (r.Path.StartsWith("ms-settings", StringComparison.OrdinalIgnoreCase) ? Path.Combine(Environment.SystemDirectory, "control.exe") : r.Path) : r.Path;
                     if (r.Kind == 4 && !File.Exists(p)) p = Path.Combine(Environment.SystemDirectory, p);
                     r.Icon = Shell.GetIcon(p, 48, r.Kind == 1 ? 0 : 4);
@@ -296,6 +258,7 @@ namespace MacDock
                 if (r.Kind == 3) { Clipboard.SetText(r.Path); return; }
                 if (reveal && (r.Kind == 1 || r.Kind == 2)) { FileOps.ShowInExplorer(r.Path); return; }
                 if (r.Kind == 4 && r.Path.StartsWith("shell:", StringComparison.OrdinalIgnoreCase)) { Process.Start("explorer.exe", r.Path); return; }
+                if (r.App != null) { AppIndex.Launch(r.App); return; }
                 FileOps.Open(r.Path);
             }
             catch (Exception ex) { Program.Log(ex); }
@@ -367,7 +330,6 @@ namespace MacDock
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             debounce.Stop();
-            foreach (var r in results) if (r.Icon != null && r.Kind != 0) { } // los iconos de apps se reutilizan
             base.OnFormClosed(e);
         }
     }

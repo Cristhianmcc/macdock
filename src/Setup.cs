@@ -212,6 +212,7 @@ namespace MacDock
                     Shell.CreateLnkArgs(Path.Combine(startMenu, "Desinstalar MacDock.lnk"), Exe, "--uninstall");
                     Shell.CreateLnkArgs(Path.Combine(startMenu, "MacDock.lnk"), Exe, "");
                     Shell.CreateLnkArgs(Path.Combine(startMenu, "Finder.lnk"), Exe, "--finder");
+                    Shell.CreateLnkArgs(Path.Combine(startMenu, "Launchpad.lnk"), Exe, "--launchpad");
                     Shell.CreateLnkArgs(Path.Combine(startMenu, "Ajustes de Windows (bateria y mas).lnk"), PowerShellExe, AjustesArgs(""));
                 }
                 catch { }
@@ -259,6 +260,7 @@ namespace MacDock
                     File.Delete(Path.Combine(startMenu, "Desinstalar MacDock.lnk"));
                     File.Delete(Path.Combine(startMenu, "MacDock.lnk"));
                     File.Delete(Path.Combine(startMenu, "Finder.lnk"));
+                    File.Delete(Path.Combine(startMenu, "Launchpad.lnk"));
                     File.Delete(Path.Combine(startMenu, "Ajustes de Windows (bateria y mas).lnk"));
                 }
                 catch { }

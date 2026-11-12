@@ -92,6 +92,15 @@ NUEVO EN 3.3
   - Pila del Escritorio de lo mas reciente a lo mas antiguo; barra de desplazamiento arrastrable.
 
 
+NUEVO EN 3.9
+  - LAUNCHPAD: el icono de cuadritos del dock (o Alt + Shift + Espacio, o Menu Inicio > Launchpad).
+    Todas tus apps en pantalla completa, con paginas y buscador. Incluye las apps de la Tienda.
+  - ALT + TAB ESTILO MAC: un icono por app. Manteniendo Alt: Tab/flechas = moverse, Q = cerrar la app,
+    H = minimizarla, Esc = cancelar. Ctrl + Alt + Tab sigue siendo el de Windows.
+  - Spotlight ahora tambien encuentra las apps de la Tienda (Calculadora, Configuracion, Fotos...).
+  - Ambas se apagan en clic derecho en el dock > Opciones del dock.
+
+
 AGREGAR APPS AL DOCK
   - Arrastra una app (acceso directo o .exe) desde el Finder, el Escritorio o el menu Inicio al dock.
   - O fijala en la barra de tareas de Windows: aparece sola en el dock.
