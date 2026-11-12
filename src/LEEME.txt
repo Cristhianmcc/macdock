@@ -1,4 +1,4 @@
-﻿MacDock 2.0 - Windows con aspecto de Mac, mas bateria y sin gastar RAM
+MacDock 2.0 - Windows con aspecto de Mac, mas bateria y sin gastar RAM
 ======================================================================
 Para Windows 10/11 de 64 bits. No necesita administrador ni instalar nada extra.
 Todo es reversible: el desinstalador deja la PC exactamente como estaba.
@@ -12,7 +12,7 @@ QUE INCLUYE ESTE INSTALADOR (un solo programa, ~16-20 MB de RAM en reposo)
      Arrastra cualquier archivo de la pila a una carpeta, al navegador, WhatsApp, correo...
    - Clic derecho: ventanas abiertas, quitar/mantener, opciones, apagar Docker y WSL.
 
-2. BARRA SUPERIOR ESTILO MAC (opcion 21 del menu de ajustes)
+2. BARRA SUPERIOR ESTILO MAC (opcion 1 del menu de ajustes)
    - Logo: Inicio, Configuracion, Administrador de tareas, Suspender, Reiniciar, Apagar.
    - Nombre de la app: minimizar, maximizar, cerrar.
    - ^ : iconos de la bandeja (Surfshark, Drive, antivirus...).
@@ -22,29 +22,23 @@ QUE INCLUYE ESTE INSTALADOR (un solo programa, ~16-20 MB de RAM en reposo)
 3. FUENTE INTER (se instala sola, licencia libre SIL OFL, ver Inter-licencia-OFL.txt)
 
 4. MENU "AJUSTES DE WINDOWS" (Menu Inicio > "Ajustes de Windows (bateria y mas)")
-   Al terminar de instalar te pregunta si abrirlo. Elige por numero o:
-     A = bateria y velocidad recomendadas
-     M = todo el aspecto Mac
-     R = deshacer todo lo del menu
-   Bateria:    1 pantalla 60 Hz con bateria   2 sin Turbo con bateria
-               3 hibernar al cerrar la tapa   4 apps con grafica Intel
-               5 programas de inicio          11 App Nap (apps sin usar en eficiencia)
-               12 sin apps en 2do plano       13 Game Bar sin grabar
-               30 ahorro de energia desde 40% 31 pantalla se apaga a 3 min, duerme a 15
-   Velocidad:  14 arranque sin espera         15 menus instantaneos
-   Uso diario: 6 clic derecho completo        7 ver extensiones   8 Win+V
-               9 sin animaciones              16 esquinas activas
-   Aspecto:    17 acento azul   18 cursor negro   19 sin sonidos   20 fondo aurora
-               21 barra superior   22 letras suaves   23 bloqueo con aurora
-               24 cursor grande   25 Inicio limpio   26 Explorador tipo Finder
-               27 claro/oscuro automatico   28 fondo dinamico   29 notificaciones tranquilas
-   Privacidad: 10 sin publicidad ni sugerencias
+   Al terminar de instalar te pregunta si abrirlo.
+   - Cada opcion muestra [x] si ya la tienes activa, asi sabes que te falta.
+   - Arriba te dice si tu equipo es laptop o PC y te recomienda un atajo:
+       M = todo el aspecto Mac
+       P = perfil PC de escritorio (rendimiento y juegos)
+       L = perfil laptop (ahorra bateria)
+     Los atajos solo aplican lo que te falta.
+   - Tambien puedes escribir numeros sueltos (ej: 2,5,9).
+   - R = deshacer todo lo que se aplico desde el menu.
 
 INSTALAR
   1. Copia esta carpeta a la PC y haz doble clic en "Instalar MacDock.exe".
-  2. Si aparece "Windows protegio su PC": "Mas informacion" > "Ejecutar de todas formas"
-     (sale porque el programa no tiene firma digital comercial).
-  3. Al final abre los Ajustes y pon A, luego M.
+  2. Si aparece "Windows protegio su PC": "Mas informacion" > "Ejecutar de todas formas".
+     Esto solo pasa en las compilaciones sin firma digital. Para comprobar que el archivo
+     es el original: en PowerShell,  Get-FileHash .\MacDock-Instalador.zip -Algorithm SHA256
+     y compararlo con el .sha256 que se publica junto al instalador.
+  3. Al final abre los Ajustes y elige el atajo recomendado (L o P) y luego M.
 
 DESINSTALAR (deja Windows como estaba: barra, tema, ajustes, fuente)
   - "Desinstalar MacDock.exe", o Menu Inicio > "Desinstalar MacDock",
@@ -71,7 +65,7 @@ NUEVO EN 3.0
   - Soltar archivos en el dock: Papelera = borrar, app = abrir con ella, Descargas/Escritorio = mover.
   - Pilas: clic en una carpeta entra en ella; Retroceso vuelve.
   - Descargas: rebote y numerito con cada descarga nueva.
-  - Ajustes 32 (Explorador con iconos grandes) y 33 (carpetas azules, pide administrador).
+  - Ajustes: Explorador con iconos grandes y carpetas azules (pide administrador).
 
 
 NUEVO EN 3.1

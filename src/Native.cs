@@ -6,14 +6,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using System.Text;
 
-[assembly: AssemblyTitle("MacDock")]
-[assembly: AssemblyDescription("Entorno de escritorio ligero estilo macOS para Windows 10/11")]
-[assembly: AssemblyConfiguration("Release")]
-[assembly: AssemblyCompany("MacDock Open Source Project")]
-[assembly: AssemblyProduct("MacDock")]
-[assembly: AssemblyCopyright("Copyright © 2026 MacDock Contributors - MIT License")]
-[assembly: AssemblyVersion("3.9.0.0")]
-[assembly: AssemblyFileVersion("3.9.0.0")]
+// Los datos del ejecutable (nombre, version, autor) estan en AssemblyInfo.cs.
 
 namespace MacDock
 {

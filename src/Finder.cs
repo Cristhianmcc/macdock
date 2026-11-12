@@ -89,15 +89,16 @@ namespace MacDock
             topBar.MouseLeave += (o, e) => { if (lightsHover != -1) { lightsHover = -1; topBar.Invalidate(); } };
             search = new TextBox { BorderStyle = BorderStyle.None, BackColor = light ? Color.FromArgb(226, 226, 232) : Color.FromArgb(56, 56, 62), ForeColor = fg, Font = fUi };
             search.Width = (int)(200 * s);
-            search.TextChanged += (o, e) => { if (!searchMode && !suppressFilter) ApplyFilter(); topBar.Invalidate(); };
+            search.TextChanged += (o, e) => { if (!searchMode && !suppressFilter && !LooksLikePath(search.Text)) ApplyFilter(); topBar.Invalidate(); };
             search.KeyDown += (o, e) =>
             {
-                if (e.KeyCode == Keys.Enter && search.Text.Trim().Length > 1) { e.SuppressKeyPress = true; SearchEverywhere(search.Text.Trim()); }
+                if (e.KeyCode == Keys.Enter && LooksLikePath(search.Text)) { e.SuppressKeyPress = true; GoToTypedPath(search.Text); }
+                else if (e.KeyCode == Keys.Enter && search.Text.Trim().Length > 1) { e.SuppressKeyPress = true; SearchEverywhere(search.Text.Trim()); }
                 else if (e.KeyCode == Keys.Escape) { e.SuppressKeyPress = true; search.Text = ""; if (searchMode) Navigate(current, false); list.Focus(); }
                 else if (e.KeyCode == Keys.Down) { e.SuppressKeyPress = true; list.Focus(); if (list.Items.Count > 0 && list.SelectedIndices.Count == 0) list.Items[0].Selected = true; }
             };
             topBar.Controls.Add(search);
-            search.HandleCreated += (o, e) => SendMessageStr(search.Handle, 0x1501, new IntPtr(1), "Buscar  (Enter: en subcarpetas)");
+            search.HandleCreated += (o, e) => SendMessageStr(search.Handle, 0x1501, new IntPtr(1), "Buscar o pegar una ruta  (Ctrl+L)");
             topBar.Resize += (o, e) => PlaceSearch();
 
             // --- barra lateral ---
@@ -190,6 +191,42 @@ namespace MacDock
             current = path; searchMode = false;
             if (search.Text != "") { suppressFilter = true; search.Text = ""; suppressFilter = false; }
             LoadFolder();
+        }
+
+        // Ir a una ruta escrita o pegada (como la barra de direcciones de Windows o "Ir a la carpeta" de Mac).
+        // Acepta C:\..., \\servidor\..., ~\..., %APPDATA%\... y la ruta de un archivo (abre su carpeta y lo marca).
+        static bool LooksLikePath(string t)
+        {
+            t = (t ?? "").Trim().Trim('"');
+            return t.Length >= 2 && ((char.IsLetter(t[0]) && t[1] == ':') || t.StartsWith("\\\\") || t.StartsWith("~") || t.StartsWith("%"));
+        }
+
+        void GoToTypedPath(string t)
+        {
+            string p = t.Trim().Trim('"');
+            if (p.StartsWith("~")) p = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + p.Substring(1);
+            p = Environment.ExpandEnvironmentVariables(p).Replace('/', '\\');
+            if (p.Length == 2 && p[1] == ':') p += "\\";
+            string select = null;
+            if (File.Exists(p)) { select = p; p = Path.GetDirectoryName(p); }
+            if (!Directory.Exists(p))
+            {
+                MessageBox.Show(this, "No encontre esa carpeta:\n" + p, "Finder", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                search.Focus(); search.SelectAll();
+                return;
+            }
+            Navigate(p, true);
+            list.Focus();
+            if (select != null)
+                foreach (ListViewItem it in list.Items)
+                    if (string.Equals((string)it.Tag, select, StringComparison.OrdinalIgnoreCase)) { it.Selected = true; it.Focused = true; it.EnsureVisible(); break; }
+        }
+
+        // Ctrl+L: pone la ruta actual en el buscador, lista para editarla o reemplazarla
+        void EditPath()
+        {
+            suppressFilter = true; search.Text = current; suppressFilter = false;
+            search.Focus(); search.SelectAll();
         }
 
         void GoBack() { if (back.Count == 0) return; fwd.Add(current); string p = back[back.Count - 1]; back.RemoveAt(back.Count - 1); current = p; searchMode = false; LoadFolder(); }
@@ -458,6 +495,7 @@ namespace MacDock
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
             if (keyData == (Keys.Control | Keys.F)) { search.Focus(); search.SelectAll(); return true; }
+            if (keyData == (Keys.Control | Keys.L) || keyData == (Keys.Control | Keys.Shift | Keys.G) || keyData == (Keys.Alt | Keys.D)) { EditPath(); return true; }
             if (keyData == (Keys.Control | Keys.W)) { Close(); return true; }
             if (keyData == Keys.F5) { Reload(); return true; }
             if (keyData == (Keys.Control | Keys.Shift | Keys.OemPeriod)) { showDot = !showDot; Reload(); return true; }

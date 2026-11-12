@@ -1,0 +1,61 @@
+name: Compilar MacDock
+
+# Se ejecuta al publicar una etiqueta (v3.8.1, v3.9...) o a mano desde la pestaña Actions.
+# Deja el instalador SIN FIRMAR como artefacto descargable: ese es el que se manda a firmar
+# (SignPath no firma algo que ya viene firmado).
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version a compilar (ej. 3.8.1)"
+        required: true
+
+jobs:
+  compilar:
+    runs-on: windows-latest
+
+    steps:
+      - name: Descargar el codigo
+        uses: actions/checkout@v4
+
+      - name: Calcular la version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = "${{ github.event.inputs.version }}"
+          if (-not $v) { $v = "${{ github.ref_name }}".TrimStart("v") }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $v"
+
+      - name: Compilar (build.ps1, sin firmar)
+        shell: powershell
+        run: .\build.ps1 -Version ${{ steps.ver.outputs.version }}
+
+      - name: Guardar el instalador y su huella
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacDock-instalador-sin-firmar
+          path: |
+            descargas/MacDock-Instalador.zip
+            descargas/MacDock-Instalador.zip.sha256
+          if-no-files-found: error
+
+      # Cuando SignPath apruebe el proyecto, se descomenta este paso y se agregan los
+      # cuatro datos (organization id, project slug, signing policy, artifact configuration)
+      # que ellos entregan. Los nombres de los parametros hay que confirmarlos en su
+      # documentacion antes de usarlos.
+      #
+      # - name: Firmar con SignPath Foundation
+      #   uses: signpath/github-action-submit-signing-request@v1
+      #   with:
+      #     api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+      #     organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+      #     project-slug: macdock
+      #     signing-policy-slug: release-signing
+      #     artifact-configuration-slug: zip
+      #     github-artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      #     wait-for-completion: true
+      #     output-artifact-directory: dist-firmado

@@ -131,8 +131,24 @@ namespace MacDock
                 if (!any) return;
                 Thread.Sleep(100);
             }
-            foreach (var p in Process.GetProcessesByName("MacDock")) if (p.Id != me) try { p.Kill(); } catch { }
+            foreach (var p in Process.GetProcessesByName("MacDock")) if (p.Id != me) try { p.Kill(); p.WaitForExit(5000); } catch { }
             Thread.Sleep(300);
+        }
+
+        // Windows tarda un momento en soltar el .exe de un proceso recien cerrado:
+        // si se copia encima enseguida da "Acceso denegado". Se reintenta unos segundos.
+        static void CopyWithRetry(string from, string to)
+        {
+            for (int i = 0; ; i++)
+            {
+                try { File.Copy(from, to, true); return; }
+                catch (Exception ex)
+                {
+                    if (!(ex is UnauthorizedAccessException || ex is IOException) || i >= 20) throw;
+                    if (i == 5) StopRunningDock();
+                    Thread.Sleep(250);
+                }
+            }
         }
 
         public static void Install()
@@ -159,7 +175,7 @@ namespace MacDock
 
                 string self = Application.ExecutablePath;
                 if (!string.Equals(Path.GetFullPath(self), Path.GetFullPath(Exe), StringComparison.OrdinalIgnoreCase))
-                    File.Copy(self, Exe, true);
+                    CopyWithRetry(self, Exe);
                 File.WriteAllText(Exe + ".config",
                     "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<configuration>\r\n" +
                     "  <startup><supportedRuntime version=\"v4.0\" sku=\".NETFramework,Version=v4.8\"/></startup>\r\n" +
@@ -193,7 +209,7 @@ namespace MacDock
                 using (var k = Registry.CurrentUser.CreateSubKey(UninstKey))
                 {
                     k.SetValue("DisplayName", "MacDock (dock estilo Mac)");
-                    k.SetValue("DisplayVersion", "3.9");
+                    k.SetValue("DisplayVersion", typeof(Setup).Assembly.GetName().Version.ToString(3));
                     k.SetValue("Publisher", "MacDock");
                     k.SetValue("DisplayIcon", Exe);
                     k.SetValue("InstallLocation", Dir);
