@@ -81,12 +81,12 @@ function Get-DockOpt($key) {
     $l = Get-Content $DockIni | Where-Object { $_ -match "^$key=" } | Select-Object -First 1
     if ($l) { return ($l -split '=', 2)[1].Trim() } return $null
 }
-function Set-DockOpt($key, $value) {
+function Set-DockOpt($key, $value, [bool]$restart = $true) {
     $id = "dock|$key"
     if (-not (Has-Backup $id)) { Add-Backup ([pscustomobject]@{ id = $id; t = "dock"; key = $key; value = (Get-DockOpt $key) }) }
     $lines = @(); if (Test-Path $DockIni) { $lines = @(Get-Content $DockIni | Where-Object { $_ -notmatch "^$key=" }) }
     $lines += "$key=$value"; Set-Content $DockIni $lines
-    Restart-Dock
+    if ($restart) { Restart-Dock }
 }
 function Restart-Dock {
     if (-not (Test-Path $DockExe)) { return }
@@ -146,6 +146,9 @@ function Status($n) {
         31 { return (Get-PowerIndex $SUB_VID $VID_OFF $true) -eq 180 }
         32 { return (Has-Backup "bags") }
         33 { return [bool](Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons" "3") }
+        35 { return (Has-Backup "powerplan|desktop") }
+        36 { return (Get-DockOpt "DeviceMode") -eq "1" -and (Get-DockOpt "GamingMode") -ne "0" }
+        37 { return (Get-RegValue "HKCU:\System\GameConfigStore" "GameDVR_FSEBehaviorMode") -eq 2 }
     }
     return $null
 }
@@ -249,6 +252,53 @@ function Apply($n) {
         }
         32 { Apply-FinderLook; Write-Host "  Listo: el Explorador abre las carpetas con iconos grandes, sin grupos, y sin 'Inicio' en la barra lateral." -ForegroundColor Green }
         33 { if (Apply-BlueFolders) { Write-Host "  Listo: carpetas azules estilo Mac (se ven al reiniciar el Explorador)." -ForegroundColor Green } }
+        35 {
+            $oldEA = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            try {
+                if (-not (Has-Backup "powerplan|desktop")) {
+                    $curLine = @(powercfg /getactivescheme) -join " "
+                    $curGuid = if ($curLine -match '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})') { $Matches[1] } else { "381b4222-f694-41f0-9685-ff5bb260df2e" }
+                    Add-Backup ([pscustomobject]@{ id = "powerplan|desktop"; t = "powerplan"; guid = $curGuid })
+                }
+                # Buscar si ya existe un plan de "Maximo rendimiento" / "Ultimate" en powercfg /l
+                $schemes = @(powercfg /l)
+                $ultLine = $schemes | Where-Object { $_ -match 'M.ximo rendimiento|Ultimate Performance' } | Select-Object -First 1
+                $targetGuid = $null
+                if ($ultLine -and $ultLine -match '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})') {
+                    $targetGuid = $Matches[1]
+                } else {
+                    $dup = @(powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61) -join " "
+                    if ($dup -match '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})') {
+                        $targetGuid = $Matches[1]
+                    } else {
+                        $targetGuid = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
+                    }
+                }
+                if ($targetGuid) { powercfg /setactive $targetGuid | Out-Null }
+                try { Set-PowerIndex $SUB_PROC $PROC_MAX $false 100 } catch { }
+            } finally {
+                $ErrorActionPreference = $oldEA
+            }
+            Write-Host "  Listo: Plan de Energia en Maximo / Alto Rendimiento y procesador al 100% con Turbo activo." -ForegroundColor Green
+        }
+        36 {
+            if (-not (Test-Path $DockExe)) { Write-Host "  Necesita el dock (MacDock) instalado." -ForegroundColor Yellow; return }
+            Set-DockOpt "AutoRefresh" "0" $false
+            Set-DockOpt "AppNap" "0" $false
+            Set-DockOpt "DeviceMode" "1" $false
+            Set-DockOpt "GamingMode" "1" $true
+            Write-Host "  Listo: MacDock configurado en Modo PC de Escritorio + Modo Gaming (0% CPU en pantalla completa y sin bordes, monitor siempre al maximo de Hz)." -ForegroundColor Green
+        }
+        37 {
+            Set-RegValue "HKCU:\System\GameConfigStore" "GameDVR_Enabled" 0
+            Set-RegValue "HKCU:\System\GameConfigStore" "GameDVR_FSEBehaviorMode" 2
+            Set-RegValue "HKCU:\System\GameConfigStore" "GameDVR_HonorUserFSEBehaviorMode" 1
+            Set-RegValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR" "AppCaptureEnabled" 0
+            Set-RegValue "HKCU:\Software\GameBar" "AutoGameModeEnabled" 1
+            Set-RegValue "HKCU:\Software\GameBar" "AllowAutoGameMode" 1
+            Write-Host "  Listo: Modo Juego de Windows 11 optimizado para pantalla completa y ventana sin bordes (sin superposicion DVR)." -ForegroundColor Green
+        }
         4 { Apply-Gpu }
         5 { Apply-Startup }
         6 {
@@ -426,7 +476,7 @@ function New-MacWallpaper([string]$Out = $MacWall, [string]$Variant = "noche") {
                        @(0.80, 0.20, 0.55, 0.45, 150, 80, 255, 140), @(0.05, 0.25, 0.45, 0.40, 40, 160, 255, 110)) }
     }
     $bg = New-Object System.Drawing.Drawing2D.LinearGradientBrush $rect, ([System.Drawing.Color]::FromArgb(255, $c1[0], $c1[1], $c1[2])), ([System.Drawing.Color]::FromArgb(255, $c2[0], $c2[1], $c2[2])), 70
-    $g.FillRectangle($bg, $rect)
+    $g.FillRectangle($bg, $rect); $bg.Dispose()
     # manchas de luz suaves (aurora), estilo de los fondos de macOS pero original
     foreach ($b in $blobs) {
         $cx = $b[0] * $W; $cy = $b[1] * $H; $rw = $b[2] * $W; $rh = $b[3] * $H
@@ -585,13 +635,13 @@ function New-BlueFolderIcon {
         $back.AddPath((RR (16*$u) (44*$u) (224*$u) (172*$u) (16*$u)), $false)
         $back.AddPath((RR (16*$u) (30*$u) (92*$u) (40*$u) (12*$u)), $false)
         $bb = New-Object System.Drawing.Drawing2D.LinearGradientBrush (New-Object System.Drawing.RectangleF 0, (30*$u), $sz, (190*$u)), ([System.Drawing.Color]::FromArgb(255, 74, 150, 226)), ([System.Drawing.Color]::FromArgb(255, 52, 122, 204)), 90
-        $g.FillPath($bb, $back)
+        $g.FillPath($bb, $back); $bb.Dispose(); $back.Dispose()
         # frente
         $front = RR (16*$u) (74*$u) (224*$u) (150*$u) (16*$u)
         $fb = New-Object System.Drawing.Drawing2D.LinearGradientBrush (New-Object System.Drawing.RectangleF 0, (74*$u), $sz, (150*$u)), ([System.Drawing.Color]::FromArgb(255, 132, 196, 252)), ([System.Drawing.Color]::FromArgb(255, 86, 160, 240)), 90
-        $g.FillPath($fb, $front)
+        $g.FillPath($fb, $front); $fb.Dispose(); $front.Dispose()
         $hl = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(120, 255, 255, 255)), ([float][Math]::Max(1, 3*$u))
-        $g.DrawLine($hl, [float](30*$u), [float](76*$u), [float](226*$u), [float](76*$u))
+        $g.DrawLine($hl, [float](30*$u), [float](76*$u), [float](226*$u), [float](76*$u)); $hl.Dispose()
         $g.Dispose()
         if ($sz -ge 256) { $ms = New-Object System.IO.MemoryStream; $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png); $data = $ms.ToArray() }
         else {
@@ -614,8 +664,10 @@ function New-BlueFolderIcon {
 }
 
 function Invoke-Admin([string]$script) {
-    $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
-    try { $p = Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $enc" -PassThru -Wait; return ($p.ExitCode -eq 0) }
+    try {
+        $p = Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $script) -PassThru -Wait
+        return ($p.ExitCode -eq 0)
+    }
     catch { return $false }
 }
 
@@ -628,6 +680,9 @@ function Apply-BlueFolders {
     Start-Process ie4uinit.exe -ArgumentList "-show" -WindowStyle Hidden
     $script:NeedExplorerRestart = $true
     return $true
+}
+
+    else { Write-Host "  No se pudo agregar la exclusion (permiso cancelado o antivirus de terceros)." -ForegroundColor Yellow }
 }
 
 # 4: grafica Intel para apps del dia a dia
@@ -722,6 +777,9 @@ function Revert-All {
                         if ($e.dc) { powercfg /setdcvalueindex SCHEME_CURRENT $e.sub $e.set $e.value | Out-Null } else { powercfg /setacvalueindex SCHEME_CURRENT $e.sub $e.set $e.value | Out-Null }
                     }
                 }
+                "powerplan" {
+                    if ($e.guid) { powercfg /setactive $e.guid 2>$null | Out-Null }
+                }
                 "dock" {
                     $lines = @(); if (Test-Path $DockIni) { $lines = @(Get-Content $DockIni | Where-Object { $_ -notmatch "^$($e.key)=" }) }
                     if ($e.value -ne $null) { $lines += "$($e.key)=$($e.value)" }
@@ -763,15 +821,20 @@ while ($true) {
     Write-Host "  ==============  AJUSTES DE WINDOWS  ==============" -ForegroundColor Cyan
     Write-Host "  Sin administrador. Todo se puede deshacer con R." -ForegroundColor DarkGray
     Write-Host ""
-    Write-Host "  BATERIA" -ForegroundColor Yellow
+    Write-Host "  PC DE ESCRITORIO (ALTO RENDIMIENTO Y GAMING)" -ForegroundColor Yellow
+    Write-Host "  35. $(Mark 35) Plan de Energia en Alto / Maximo Rendimiento (CPU 100% con Turbo activo)"
+    Write-Host "  36. $(Mark 36) MacDock en Modo PC de Escritorio + Gaming 0% CPU (pantalla completa y sin bordes)"
+    Write-Host "  37. $(Mark 37) Optimizar Windows 11 para Gaming sin bordes (Game Mode ON, sin DVR)"
+    Write-Host "   5.          Elegir que programas arrancan al prender la PC"
+    Write-Host "  12. $(Mark 12) Apps de la tienda sin correr en segundo plano"
+    Write-Host "  13. $(Mark 13) Xbox Game Bar sin grabar en segundo plano"
+    Write-Host ""
+    Write-Host "  LAPTOP (AHORRO DE BATERIA)" -ForegroundColor Yellow
     Write-Host "   1. $(Mark 1) Pantalla a 60 Hz con bateria (144 Hz enchufado, automatico)"
     Write-Host "   2. $(Mark 2) Sin Turbo Boost con bateria (menos calor, bastante mas bateria)"
     Write-Host "   3. $(Mark 3) Hibernar al cerrar la tapa con bateria (no gasta en la noche)"
     Write-Host "   4.          Apps del dia a dia con la grafica Intel en vez de la NVIDIA"
-    Write-Host "   5.          Elegir que programas arrancan al prender la PC"
     Write-Host "  11. $(Mark 11) App Nap: apps que no usas en modo eficiencia (como Mac)"
-    Write-Host "  12. $(Mark 12) Apps de la tienda sin correr en segundo plano"
-    Write-Host "  13. $(Mark 13) Xbox Game Bar sin grabar en segundo plano"
     Write-Host "  30. $(Mark 30) Ahorro de energia automatico desde el 40%"
     Write-Host "  31. $(Mark 31) Con bateria: pantalla se apaga a los 3 min y duerme a los 15"
     Write-Host ""
@@ -803,21 +866,23 @@ while ($true) {
     Write-Host "  32. $(Mark 32) Explorador tipo Finder: iconos grandes, sin grupos"
     Write-Host "  33. $(Mark 33) Carpetas azules estilo Mac (pide administrador una vez)"
     Write-Host ""
-    Write-Host "  PRIVACIDAD" -ForegroundColor Yellow
+    Write-Host "  PRIVACIDAD Y SEGURIDAD" -ForegroundColor Yellow
     Write-Host "  10. $(Mark 10) Sin publicidad personalizada ni sugerencias de Microsoft"
     Write-Host ""
-    Write-Host "   A. Aplicar todo lo recomendado de bateria y velocidad (1-3, 6-8, 10-16, 30, 31)"
+    Write-Host "   P. PERFIL PC DE ESCRITORIO: Maximo Rendimiento, Gaming sin bordes, Velocidad y Privacidad (6-8, 10, 12-16, 35-37)" -ForegroundColor Green
+    Write-Host "   L. PERFIL LAPTOP: Ahorro de Bateria, 60 Hz en bateria, App Nap y Velocidad (1-3, 6-8, 10-16, 30, 31)" -ForegroundColor Cyan
     Write-Host "   M. Aplicar todo el aspecto Mac (17 a 28, menos el 27: claro/oscuro va con el boton sol/luna)"
     Write-Host "   R. Revertir todo lo aplicado con este menu"
     Write-Host "   S. Salir"
     Write-Host ""
-    $op = (Read-Host "  Elige una opcion (puedes poner varias: 1,2,7)").Trim().ToUpper()
+    $op = (Read-Host "  Elige una opcion (puedes poner varias: P, M o numeros)").Trim().ToUpper()
     if ($op -eq "S" -or $op -eq "") { break }
     try {
         if ($op -eq "R") { Revert-All }
-        elseif ($op -eq "A") { foreach ($n in 1, 2, 3, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 30, 31) { Apply $n } }
+        elseif ($op -eq "P") { foreach ($n in 6, 7, 8, 10, 12, 13, 14, 15, 16, 35, 36, 37) { Apply $n } }
+        elseif ($op -eq "L" -or $op -eq "A") { foreach ($n in 1, 2, 3, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 30, 31) { Apply $n } }
         elseif ($op -eq "M") { foreach ($n in (17..26 + 28 + 29 + 32 + 33)) { Apply $n } }
-        else { foreach ($n in ($op -split '[, ]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })) { if ($n -ge 1 -and $n -le 33) { Apply $n } } }
+        else { foreach ($n in ($op -split '[, ]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })) { if ($n -ge 1 -and $n -le 37) { Apply $n } } }
     } catch { Write-Host "  Error: $($_.Exception.Message)" -ForegroundColor Red }
     Read-Host "  Enter para volver al menu" | Out-Null
 }
@@ -828,5 +893,10 @@ if ($script:NeedExplorerRestart) {
         Stop-Process -Name explorer -Force
         Start-Sleep 2
         if (-not (Get-Process explorer -ErrorAction SilentlyContinue)) { Start-Process explorer.exe }
+        Start-Sleep 1
+        $exe = Join-Path $Dir "MacDock.exe"
+        if ((Test-Path $exe) -and -not (Get-Process MacDock -ErrorAction SilentlyContinue)) {
+            Start-Process $exe
+        }
     }
 }

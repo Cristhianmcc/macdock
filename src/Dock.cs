@@ -88,7 +88,7 @@ namespace MacDock
         public bool AutoRefresh = false;
         public bool AppNap = false;
         public bool HotCorners = false;
-        public bool MenuBar = false;
+        public bool MenuBar = true;
         public bool AutoTheme = false;
         public bool DynWall = false;
         public bool UseFinder = true;
@@ -100,6 +100,10 @@ namespace MacDock
         public bool AppSwitcher = true;     // Alt + Tab muestra el selector de apps estilo Cmd + Tab
         public bool Widgets = true;         // widgets en el escritorio (cuales y donde: widgets.ini)
         public string WallTheme = "";       // fondo elegido en el dock: aurora, universo o neon ("" = el tuyo)
+        public bool WindowPreviews = true;
+        public bool MultiMonitor = true;
+        public int DeviceMode = 0; // 0 = Auto, 1 = PC de Escritorio, 2 = Laptop
+        public bool GamingMode = true;
         public TimeSpan LightFrom = new TimeSpan(7, 0, 0);
         public TimeSpan DarkFrom = new TimeSpan(18, 30, 0);
         public bool HideTaskbar = true;
@@ -136,13 +140,21 @@ namespace MacDock
                 else if (k == "appswitcher") AppSwitcher = v == "1";
                 else if (k == "widgets") Widgets = v == "1";
                 else if (k == "walltheme") WallTheme = v.ToLowerInvariant();
+                else if (k == "windowpreviews") WindowPreviews = v == "1";
+                else if (k == "multimonitor") MultiMonitor = v == "1";
+                else if (k == "devicemode" && int.TryParse(v, out i)) DeviceMode = Math.Max(0, Math.Min(2, i));
+                else if (k == "gamingmode") GamingMode = v == "1";
                 else if (k == "lightfrom") { TimeSpan t; if (TimeSpan.TryParse(v, out t)) LightFrom = t; }
                 else if (k == "darkfrom") { TimeSpan t; if (TimeSpan.TryParse(v, out t)) DarkFrom = t; }
             }
+            DeviceProfile.Mode = DeviceMode;
+            DeviceProfile.GamingMode = GamingMode;
         }
 
         public void Save()
         {
+            DeviceProfile.Mode = DeviceMode;
+            DeviceProfile.GamingMode = GamingMode;
             try
             {
                 File.WriteAllText(path,
@@ -168,6 +180,10 @@ namespace MacDock
                     "AppSwitcher=" + (AppSwitcher ? 1 : 0) + "\r\n" +
                     "Widgets=" + (Widgets ? 1 : 0) + "\r\n" +
                     "WallTheme=" + WallTheme + "\r\n" +
+                    "WindowPreviews=" + (WindowPreviews ? 1 : 0) + "\r\n" +
+                    "MultiMonitor=" + (MultiMonitor ? 1 : 0) + "\r\n" +
+                    "DeviceMode=" + DeviceMode + "\r\n" +
+                    "GamingMode=" + (GamingMode ? 1 : 0) + "\r\n" +
                     "ReserveSpace=" + (ReserveSpace ? 1 : 0) + "\r\n" +
                     "HideTaskbar=" + (HideTaskbar ? 1 : 0) + "\r\n");
             }
@@ -264,27 +280,66 @@ namespace MacDock
         // =====================  funciones tipo Mac: Spotlight, Quick Look, soltar en el dock, aviso de descargas  =====================
         [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr h, int id, int mods, int vk);
         [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr h, int id);
-        delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
-        [DllImport("user32.dll")] static extern IntPtr SetWindowsHookEx(int id, LowLevelKeyboardProc fn, IntPtr mod, uint thread);
-        [DllImport("user32.dll")] static extern bool UnhookWindowsHookEx(IntPtr h);
-        [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr h, int n, IntPtr w, IntPtr l);
         [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vk);
-        [DllImport("kernel32.dll")] static extern IntPtr GetModuleHandle(string name);
         [StructLayout(LayoutKind.Sequential)] struct GUITHREADINFO { public int cbSize, flags; public IntPtr hwndActive, hwndFocus, hwndCapture, hwndMenuOwner, hwndMoveSize, hwndCaret; public N.RECT rcCaret; }
         [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info);
 
-        LowLevelKeyboardProc kbProc; IntPtr kbHook = IntPtr.Zero;
         int msgFinder = N.RegisterWindowMessage("MacDockOpenFinder"), msgSpot = N.RegisterWindowMessage("MacDockOpenSpotlight"), msgLaunchpad = N.RegisterWindowMessage("MacDockOpenLaunchpad");
-        bool KeyHookWanted { get { return cfg.QuickLookExplorer || cfg.AppSwitcher; } }
-        void SetLaunchpadKey(bool on) { if (on) RegisterHotKey(Handle, 8, 0x0001 | 0x0004 | 0x4000, 0x20); else UnregisterHotKey(Handle, 8); }   // Alt + Shift + Espacio
+        // Atajos (RegisterHotKey, sin ganchos de teclado): 7 Spotlight, 8 Espacio en el Explorador, 20 Launchpad, 30-39 selector de apps
+        void SetLaunchpadKey(bool on) { if (on) RegisterHotKey(Handle, 20, 0x0001 | 0x0004 | 0x4000, 0x20); else UnregisterHotKey(Handle, 20); }   // Alt + Shift + Espacio
+
+        // Alt + Tab estilo Mac: Alt+Tab y Alt+Shift+Tab quedan registrados; las teclas de "dentro" del selector (Esc, Q, H, flechas, Enter)
+        // solo mientras esta abierto. Soltar Alt lo detecta el propio selector.
+        static readonly int[][] SwitcherInnerKeys = { new[] { 32, 0x1B }, new[] { 33, 0x51 }, new[] { 34, 0x48 }, new[] { 35, 0x25 }, new[] { 36, 0x27 }, new[] { 37, 0x26 }, new[] { 38, 0x28 }, new[] { 39, 0x0D } };
+        bool switcherKeysOn, innerKeysOn; DateTime switcherRetryAt = DateTime.MinValue;
+        void SetSwitcherKeys(bool on)
+        {
+            if (on && !switcherKeysOn)
+            {
+                if (DateTime.Now < switcherRetryAt) return;          // si otro programa tiene Alt+Tab, no insistir a cada rato
+                switcherRetryAt = DateTime.Now.AddSeconds(30);
+                bool a = RegisterHotKey(Handle, 30, 0x0001, 0x09), b = RegisterHotKey(Handle, 31, 0x0001 | 0x0004, 0x09);
+                switcherKeysOn = a || b;
+                if (!a) Program.Log("No se pudo registrar Alt+Tab (otro programa lo usa): se queda el de Windows.");
+            }
+            else if (!on && switcherKeysOn) { UnregisterHotKey(Handle, 30); UnregisterHotKey(Handle, 31); switcherKeysOn = false; SetInnerKeys(false); }
+        }
+        void SetInnerKeys(bool on)
+        {
+            if (on == innerKeysOn) return;
+            innerKeysOn = on;
+            foreach (var k in SwitcherInnerKeys) { if (on) RegisterHotKey(Handle, k[0], 0x0001, k[1]); else UnregisterHotKey(Handle, k[0]); }
+        }
+        void OnSwitcherHotKey(int id)
+        {
+            switch (id)
+            {
+                case 30: AppSwitcher.Step(1, light, s); break;
+                case 31: AppSwitcher.Step(-1, light, s); break;
+                case 32: AppSwitcher.Cancel(); break;
+                case 33: AppSwitcher.QuitSelected(); break;
+                case 34: AppSwitcher.HideSelected(); break;
+                case 35: case 37: AppSwitcher.Step(-1, light, s); break;
+                case 36: case 38: AppSwitcher.Step(1, light, s); break;
+                case 39: AppSwitcher.Commit(); break;
+            }
+            SetInnerKeys(AppSwitcher.IsOpen);
+        }
         FileSystemWatcher dlWatcher;
+        System.Windows.Forms.Timer inputTimer = new System.Windows.Forms.Timer { Interval = 45 };
+        bool spaceHotKeyOn = false, deskIconsCached = true, rmbWasDown = false;
+        Point rmbDownPt;
 
         void InitMacFeatures()
         {
             if (cfg.SpotlightKey) RegisterHotKey(Handle, 7, 0x0001 | 0x4000, 0x20);   // Alt + Espacio
             if (cfg.Launchpad) SetLaunchpadKey(true);
-            if (KeyHookWanted) SetKeyHook(true);
+            if (cfg.AppSwitcher) SetSwitcherKeys(true);
+            AppSwitcher.SwitcherClosed = () => { try { BeginInvoke(new Action(() => SetInnerKeys(false))); } catch { } };
             AppIndex.EnsureAsync(null);   // la lista de apps queda lista para Launchpad y Spotlight
+            deskIconsCached = DesktopIcons.Visible;
+            inputTimer.Tick += InputTick;
+            inputTimer.Start();
             AllowDrop = true;
             SetMacButtons(cfg.MacButtons);
             SetDesktopMenu(cfg.DesktopMenu);
@@ -299,47 +354,15 @@ namespace MacDock
             else if (!on && macBtns != null) { macBtns.Close(); macBtns.Dispose(); macBtns = null; }
         }
 
-        // ---- clic derecho en el escritorio: menu estilo Mac (el de Windows sigue disponible en "Mas opciones de Windows") ----
-        [StructLayout(LayoutKind.Sequential)] struct MSLLHOOKSTRUCT { public N.POINT pt; public int mouseData, flags, time; public IntPtr extra; }
+        // ---- clic derecho en el escritorio y Espacio en el Explorador (sin SetWindowsHookEx para evitar falsos positivos de antivirus) ----
         [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(N.POINT p);
         [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr h, int flags);
-        LowLevelKeyboardProc msProc; IntPtr msHook = IntPtr.Zero; bool eatRightUp; DateTime nativeUntil = DateTime.MinValue;
+        DateTime nativeUntil = DateTime.MinValue;
 
-        void SetDesktopMenu(bool on)
-        {
-            OnHookThread(() =>
-            {
-                if (on && msHook == IntPtr.Zero) { msProc = MouseHook; msHook = SetWindowsHookEx(14, msProc, GetModuleHandle(null), 0); }
-                else if (!on && msHook != IntPtr.Zero) { UnhookWindowsHookEx(msHook); msHook = IntPtr.Zero; }
-            });
-        }
-
+        void SetDesktopMenu(bool on) { }
         void SetKeyHook(bool on)
         {
-            OnHookThread(() =>
-            {
-                if (on && kbHook == IntPtr.Zero) { kbProc = KeyboardHook; kbHook = SetWindowsHookEx(13, kbProc, GetModuleHandle(null), 0); }
-                else if (!on && kbHook != IntPtr.Zero) { UnhookWindowsHookEx(kbHook); kbHook = IntPtr.Zero; }
-            });
-        }
-
-        // Los ganchos de mouse y teclado viven en su propio hilo: Windows espera la respuesta en cada movimiento del
-        // mouse, y si el hilo del dock esta dibujando, el cursor se traba. Aqui responden al instante.
-        static Control hookCtl;
-        static void OnHookThread(Action a)
-        {
-            if (hookCtl == null)
-            {
-                var ready = new System.Threading.ManualResetEvent(false);
-                var th = new System.Threading.Thread(() =>
-                {
-                    var ctl = new Control(); ctl.CreateControl(); var hh = ctl.Handle; hookCtl = ctl; ready.Set();
-                    Application.Run();
-                });
-                th.IsBackground = true; th.Name = "ganchos"; th.SetApartmentState(System.Threading.ApartmentState.STA); th.Start();
-                ready.WaitOne(3000);
-            }
-            try { if (hookCtl != null) hookCtl.Invoke(a); } catch (Exception ex) { Program.Log(ex); }
+            if (!on && spaceHotKeyOn) { try { UnregisterHotKey(Handle, 8); } catch { } spaceHotKeyOn = false; }
         }
 
         static bool IsDesktopAt(N.POINT p)
@@ -351,20 +374,51 @@ namespace MacDock
             return (rc == "Progman" || rc == "WorkerW") && (hc == "SHELLDLL_DefView" || hc == "SysListView32" || hc == "WorkerW" || hc == "Progman");
         }
 
-        IntPtr MouseHook(int nCode, IntPtr wParam, IntPtr lParam)
+        bool ShouldInterceptExplorerSpace()
+        {
+            if (!cfg.QuickLookExplorer) return false;
+            if (QuickLook.IsOpenAndFocused()) return true;
+            IntPtr fg = N.GetForegroundWindow();
+            if (fg == IntPtr.Zero || N.ClassOf(fg) != "CabinetWClass") return false;
+            uint pid; uint tid = N.GetWindowThreadProcessId(fg, out pid);
+            var gi = new GUITHREADINFO { cbSize = Marshal.SizeOf(typeof(GUITHREADINFO)) };
+            if (!GetGUIThreadInfo(tid, ref gi) || gi.hwndCaret != IntPtr.Zero) return false;
+            string fc = gi.hwndFocus == IntPtr.Zero ? "" : N.ClassOf(gi.hwndFocus);
+            return fc == "DirectUIHWND" || fc == "SysListView32";
+        }
+
+        void InputTick(object sender, EventArgs e)
         {
             try
             {
-                int msg = wParam.ToInt32();
-                if (nCode >= 0 && (msg == 0x204 || msg == 0x205) && DateTime.Now > nativeUntil)
+                if (fullApp && cfg.GamingMode)
                 {
-                    var info = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
-                    if (msg == 0x204 && IsDesktopAt(info.pt) && DesktopIcons.Visible == false) { eatRightUp = true; return new IntPtr(1); }
-                    if (msg == 0x205 && eatRightUp) { eatRightUp = false; var pt = new Point(info.pt.x, info.pt.y); BeginInvoke(new Action(() => DesktopMenuAt(pt))); return new IntPtr(1); }
+                    if (spaceHotKeyOn) { UnregisterHotKey(Handle, 8); spaceHotKeyOn = false; }
+                    if (switcherKeysOn && !AppSwitcher.IsOpen) SetSwitcherKeys(false);   // en juegos, Alt + Tab vuelve a ser el de Windows
+                    rmbWasDown = false;
+                    return;
                 }
+                if (cfg.AppSwitcher && !switcherKeysOn) SetSwitcherKeys(true);
+                bool wantSpace = ShouldInterceptExplorerSpace();
+                if (wantSpace && !spaceHotKeyOn) { if (RegisterHotKey(Handle, 8, 0x4000, 0x20)) spaceHotKeyOn = true; }
+                else if (!wantSpace && spaceHotKeyOn) { UnregisterHotKey(Handle, 8); spaceHotKeyOn = false; }
+
+                if (cfg.DesktopMenu && !deskIconsCached && !menuOpen && DateTime.Now > nativeUntil)
+                {
+                    bool rmb = (GetAsyncKeyState(0x02) & 0x8000) != 0;
+                    if (rmb && !rmbWasDown) { rmbWasDown = true; rmbDownPt = Cursor.Position; }
+                    else if (!rmb && rmbWasDown)
+                    {
+                        rmbWasDown = false;
+                        var pt = Cursor.Position;
+                        bool shift = (GetAsyncKeyState(0x10) & 0x8000) != 0;
+                        if (!shift && Math.Abs(pt.X - rmbDownPt.X) < 8 && Math.Abs(pt.Y - rmbDownPt.Y) < 8 && IsDesktopAt(new N.POINT { x = pt.X, y = pt.Y }))
+                            DesktopMenuAt(pt);
+                    }
+                }
+                else rmbWasDown = false;
             }
             catch { }
-            return CallNextHookEx(msHook, nCode, wParam, lParam);
         }
 
         ShellMenu lastShellMenu;
@@ -387,7 +441,7 @@ namespace MacDock
             Add(m, "Nueva carpeta", () => { FileOps.NewFolder(desk); Finder.OpenOrFocus(light, s, desk); });
             Add(m, "Abrir el escritorio en Finder", () => Finder.OpenOrFocus(light, s, desk));
             Add(m, "Ver lo que hay en el escritorio (pila)", () => { if (stackItem != null) ToggleStack(stackItem); });
-            Add(m, DesktopIcons.Visible ? "Ocultar iconos del escritorio" : "Mostrar iconos del escritorio", () => DesktopIcons.Toggle());
+            Add(m, DesktopIcons.Visible ? "Ocultar iconos del escritorio" : "Mostrar iconos del escritorio", () => { DesktopIcons.Toggle(); deskIconsCached = DesktopIcons.Visible; });
             m.Items.Add(WallpaperMenu());
             Add(m, "Cambiar fondo de pantalla...", () => Process.Start("ms-settings:personalization-background"));
             m.Items.Add(new ToolStripSeparator());
@@ -435,84 +489,15 @@ namespace MacDock
 
         void StopMacFeatures()
         {
+            try { inputTimer.Stop(); } catch { }
             try { UnregisterHotKey(Handle, 7); } catch { }
-            try { UnregisterHotKey(Handle, 8); } catch { }
+            try { UnregisterHotKey(Handle, 20); } catch { }
+            try { SetSwitcherKeys(false); } catch { }
             try { AppSwitcher.Cancel(); } catch { }
-            try { SetKeyHook(false); } catch { }
+            try { if (spaceHotKeyOn) UnregisterHotKey(Handle, 8); spaceHotKeyOn = false; } catch { }
             try { if (dlWatcher != null) dlWatcher.Dispose(); } catch { }
             try { SetMacButtons(false); } catch { }
-            try { SetDesktopMenu(false); } catch { }
-        }
-
-        // Gancho de teclado. Solo mira dos cosas y deja pasar todo lo demas sin guardarlo:
-        //  - Alt + Tab: selector de apps estilo Cmd + Tab (AppSwitcher.cs)
-        //  - Espacio en el Explorador (lista de archivos): Quick Look del archivo seleccionado. Se ignora si estas escribiendo.
-        IntPtr KeyboardHook(int nCode, IntPtr wParam, IntPtr lParam)
-        {
-            try
-            {
-                if (nCode >= 0 && cfg.AppSwitcher)
-                {
-                    int msg = wParam.ToInt32(), vk = Marshal.ReadInt32(lParam), flags = Marshal.ReadInt32(lParam, 8);
-                    bool injected = (flags & 0x10) != 0, keyDown = msg == 0x100 || msg == 0x104, keyUp = msg == 0x101 || msg == 0x105;
-                    if (!injected)
-                    {
-                        // Alt + Tab (sin Ctrl ni Windows: Ctrl+Alt+Tab sigue siendo el de Windows)
-                        if (vk == 0x09 && keyDown && (flags & 0x20) != 0 && (GetAsyncKeyState(0x11) & 0x8000) == 0 &&
-                            (GetAsyncKeyState(0x5B) & 0x8000) == 0 && (GetAsyncKeyState(0x5C) & 0x8000) == 0)
-                        {
-                            int dir = (GetAsyncKeyState(0x10) & 0x8000) != 0 ? -1 : 1;
-                            AppSwitcher.IsOpen = true;   // ya aqui, para no perder un Alt soltado muy rapido
-                            BeginInvoke(new Action(() => AppSwitcher.Step(dir, light, s)));
-                            return new IntPtr(1);
-                        }
-                        if (AppSwitcher.IsOpen)
-                        {
-                            if (keyUp && (vk == 0x12 || vk == 0xA4 || vk == 0xA5)) BeginInvoke(new Action(AppSwitcher.Commit));   // soltar Alt (se deja pasar)
-                            else if (keyDown)
-                            {
-                                Action a = null;
-                                switch (vk)
-                                {
-                                    case 0x1B: a = AppSwitcher.Cancel; break;                       // Esc
-                                    case 0x0D: a = AppSwitcher.Commit; break;                       // Enter
-                                    case 0x51: a = AppSwitcher.QuitSelected; break;                 // Q
-                                    case 0x48: a = AppSwitcher.HideSelected; break;                 // H
-                                    case 0x25: case 0x26: a = () => AppSwitcher.Step(-1, light, s); break;   // flechas
-                                    case 0x27: case 0x28: a = () => AppSwitcher.Step(1, light, s); break;
-                                }
-                                if (a != null) { BeginInvoke(a); return new IntPtr(1); }
-                            }
-                        }
-                    }
-                }
-                if (nCode >= 0 && cfg.QuickLookExplorer && (wParam.ToInt32() == 0x100) && Marshal.ReadInt32(lParam) == 0x20)
-                {
-                    bool mods = (GetAsyncKeyState(0x10) & 0x8000) != 0 || (GetAsyncKeyState(0x11) & 0x8000) != 0 || (GetAsyncKeyState(0x12) & 0x8000) != 0 || (GetAsyncKeyState(0x5B) & 0x8000) != 0;
-                    if (!mods)
-                    {
-                        if (QuickLook.IsOpenAndFocused()) { BeginInvoke(new Action(() => QuickLook.Toggle(null, light))); return new IntPtr(1); }
-                        IntPtr fg = N.GetForegroundWindow();
-                        string cls = fg == IntPtr.Zero ? "" : N.ClassOf(fg);
-                        if (cls == "CabinetWClass")
-                        {
-                            uint pid; uint tid = N.GetWindowThreadProcessId(fg, out pid);
-                            var gi = new GUITHREADINFO(); gi.cbSize = Marshal.SizeOf(typeof(GUITHREADINFO));
-                            if (GetGUIThreadInfo(tid, ref gi) && gi.hwndCaret == IntPtr.Zero)
-                            {
-                                string fc = gi.hwndFocus == IntPtr.Zero ? "" : N.ClassOf(gi.hwndFocus);
-                                if (fc == "DirectUIHWND" || fc == "SysListView32")
-                                {
-                                    BeginInvoke(new Action(() => QuickLookExplorer(fg)));
-                                    return new IntPtr(1);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch { }
-            return CallNextHookEx(kbHook, nCode, wParam, lParam);
+            try { ClosePreview(); } catch { }
         }
 
         void QuickLookExplorer(IntPtr explorerWnd)
@@ -735,15 +720,21 @@ namespace MacDock
                 if (bar == null || fullApp) return;
                 IntPtr h = N.GetForegroundWindow();
                 if (h == IntPtr.Zero || N.IsIconic(h)) return;
-                uint pid; N.GetWindowThreadProcessId(h, out pid); if (pid == myPid) return;
+                uint pid; N.GetWindowThreadProcessId(h, out pid);
+                if (pid == myPid || FullscreenApp.IsIgnoredOverlayProcess(pid)) return;
                 string cls = N.ClassOf(h);
-                if (cls == "Progman" || cls == "WorkerW" || cls == "Shell_TrayWnd" || cls == "Windows.UI.Core.CoreWindow" || cls == "XamlExplorerHostIslandWindow") return;
+                if (cls == "Progman" || cls == "WorkerW" || cls == "Shell_TrayWnd" || cls == "Shell_SecondaryTrayWnd" ||
+                    cls == "Windows.UI.Core.CoreWindow" || cls == "XamlExplorerHostIslandWindow" || cls == "ScreenClippingWindow" ||
+                    cls == "Xaml_WindowedPopupClass") return;
                 int style = N.GetWindowLong(h, -16);
-                if ((style & 0x00040000) == 0 && (style & 0x00C00000) == 0) return;   // sin borde redimensionable ni titulo: probablemente pantalla completa o popup
+                // Exigir ventana normal con barra de titulo (WS_CAPTION) y borde redimensionable; nunca tocar overlays de captura ni ventanas sin bordes
+                if ((style & 0x00C00000) != 0x00C00000 || (style & 0x00040000) == 0) return;
                 N.RECT r; if (DwmGetWindowAttribute(h, 9, out r, 16) != 0) N.GetWindowRect(h, out r);   // borde visible real
                 var scr = Screen.FromHandle(h); var wa = scr.WorkingArea; var b = scr.Bounds;
                 if (N.IsZoomed(h)) return;   // las ventanas maximizadas por Windows ya respetan la barra
-                if (r.top >= wa.Top - 2 || r.left > b.Left + 2 || r.right < b.Right - 2) return;
+                // Solo ajustar si la ventana pertenece exclusivamente a este monitor (nunca cortar ventanas multi-monitor como capturas de pantalla)
+                if (r.top >= wa.Top - 2 || Math.Abs(r.left - b.Left) > 12 || Math.Abs(r.right - b.Right) > 12) return;
+                if ((r.bottom - r.top) > b.Height + 16) return;
                 string key = h + "|" + r.top + "|" + r.bottom; if (fixedOnce.Contains(key)) return; fixedOnce.Add(key);
                 N.SetWindowPos(h, IntPtr.Zero, wa.Left, wa.Top, wa.Width, wa.Height, 0x0004 | 0x0010);
             }
@@ -826,11 +817,17 @@ namespace MacDock
         }
 
         MenuBar bar;
+        Screen curScreen = Screen.PrimaryScreen;
+        DockPreview previewPopup;
+        DockItem previewItem;
+        DateTime hoverSince = DateTime.MaxValue;
+        int prevHoverIdx = -1;
+
         void SetMenuBar(bool on)
         {
             if (on && bar == null)
             {
-                bar = new MenuBar(s, light);
+                bar = new MenuBar(s, light, Screen.PrimaryScreen, false, cfg.MultiMonitor);
                 bar.ToggleTheme = ToggleTheme;
                 bar.ShowTray = ShowTray;
                 bar.Show();
@@ -838,6 +835,39 @@ namespace MacDock
             else if (!on && bar != null)
             {
                 bar.Close(); bar.Dispose(); bar = null;
+            }
+        }
+
+        void ClosePreview()
+        {
+            previewItem = null;
+            if (previewPopup != null && !previewPopup.IsDisposed) { try { previewPopup.Close(); previewPopup.Dispose(); } catch { } }
+            previewPopup = null;
+        }
+
+        void UpdatePreview()
+        {
+            if (!cfg.WindowPreviews || dragging || menuOpen || stackPopup != null || hiddenFull)
+            {
+                ClosePreview();
+                return;
+            }
+            DockItem hov = hoverIdx >= 0 && hoverIdx < all.Count ? all[hoverIdx] : null;
+            if (hov != null && hov.Kind == Kind.App && hov.Running && hov.Windows.Count > 0)
+            {
+                if (previewItem == hov && previewPopup != null && !previewPopup.IsDisposed) return;
+                if ((DateTime.Now - hoverSince).TotalMilliseconds >= 360)
+                {
+                    ClosePreview();
+                    previewItem = hov;
+                    var anchor = new Point(winX + (int)(hov.X + hov.W / 2), winY + (int)(SlidePx + BarTop - (cfg.Magnify ? Ic * (MaxMag - 1f) : 0) - 28 * s));
+                    previewPopup = new DockPreview(s, light, hov, anchor, curScreen.Bounds, Focus, () => { RefreshRunning(); Render(); });
+                    previewPopup.Show();
+                }
+            }
+            else if (previewPopup != null && !previewPopup.IsDisposed)
+            {
+                if (!previewPopup.IsMouseInsideOrBridge(Cursor.Position)) ClosePreview();
             }
         }
         AppNap nap = new AppNap();
@@ -849,6 +879,7 @@ namespace MacDock
         {
             try
             {
+                if (DeviceProfile.IsDesktop) { if (nap.Count > 0) nap.WakeAll(); return; }
                 bool battery = SystemInformation.PowerStatus.PowerLineStatus == PowerLineStatus.Offline;
                 if (!cfg.AppNap || !battery) { if (nap.Count > 0) nap.WakeAll(); return; }
                 string fgExe = "";
@@ -864,6 +895,7 @@ namespace MacDock
         {
             try
             {
+                if (DeviceProfile.IsDesktop) { if (loweredRefresh) RestoreRefresh(); return; }
                 var pw = SystemInformation.PowerStatus.PowerLineStatus;
                 if (pw == lastPower && Display.Current(Screen.PrimaryScreen.DeviceName) != 0) return;
                 lastPower = pw;
@@ -1166,6 +1198,15 @@ namespace MacDock
             try
             {
                 CheckFullscreen();
+                // Modo Gaming / Render (0% CPU): cuando hay un juego o app en pantalla completa / sin bordes,
+                // se suspende todo el escaneo de ventanas, iconos y procesos en segundo plano.
+                if (fullApp && cfg.GamingMode)
+                {
+                    ClosePreview();
+                    if (fast.Enabled) fast.Stop();
+                    return;
+                }
+                deskIconsCached = DesktopIcons.Visible;
                 HideTaskbarIfShown();
                 if (DateTime.Now >= refreshCheckAt) { refreshCheckAt = DateTime.Now.AddSeconds(5); ApplyRefresh(); }
                 if (DateTime.Now >= napAt) { napAt = DateTime.Now.AddSeconds(3); UpdateNap(); }
@@ -1182,7 +1223,7 @@ namespace MacDock
                 bool tf = N.RecycleBinFull();
                 if (tf != trashFull) { trashFull = tf; trashItem.Icon = TrashIcon() ?? trashItem.Icon; Render(); }
                 var bst = BatteryGlyph.Read();
-                string clk = DateTime.Now.ToString("HH:mm") + bst.Pct + bst.Plugged;
+                string clk = DateTime.Now.ToString("HH:mm") + (DeviceProfile.IsDesktop ? "D" : bst.Pct + "|" + bst.Plugged);
                 if (clk != lastClock) { lastClock = clk; if (!fast.Enabled) Render(); }
                 if (!fast.Enabled && idleSince != DateTime.MaxValue && (DateTime.Now - idleSince).TotalSeconds > 3)
                 {
@@ -1209,7 +1250,7 @@ namespace MacDock
 
         void FastTick(object sender, EventArgs e)
         {
-            if (hiddenFull) { fast.Stop(); return; }
+            if (hiddenFull) { ClosePreview(); fast.Stop(); return; }
             bool sliding = slide != slideTarget;
             if (sliding)
             {
@@ -1217,7 +1258,7 @@ namespace MacDock
                 if (Math.Abs(slideTarget - slide) < 0.02f) slide = slideTarget;
                 if (slide >= 1f && slideTarget >= 1f)
                 {
-                    hiddenFull = true; mag = 0f; hoverIdx = -1; fast.Stop();
+                    hiddenFull = true; mag = 0f; hoverIdx = -1; ClosePreview(); fast.Stop();
                     N.ShowWindow(Handle, 0); idleSince = DateTime.Now; return;
                 }
             }
@@ -1232,6 +1273,13 @@ namespace MacDock
             if (Math.Abs(target - mag) < 0.01f) mag = target;
             if (inside) lastMx = mx;
             hoverIdx = inside ? HitIndex(mx) : -1;
+            if (hoverIdx != prevHoverIdx)
+            {
+                prevHoverIdx = hoverIdx;
+                hoverSince = hoverIdx >= 0 ? DateTime.Now : DateTime.MaxValue;
+                if (hoverIdx < 0 && previewPopup != null && !previewPopup.IsMouseInsideOrBridge(c)) ClosePreview();
+            }
+            UpdatePreview();
             bool bouncing = AnyBouncing();
             bool same = c == lastCursor && mag == lastMag && !bouncing && !dragging && !sliding;
             lastCursor = c; lastMag = mag;
@@ -1252,7 +1300,8 @@ namespace MacDock
         // ---------- layout ----------
         void Relayout()
         {
-            Screen scr = Screen.PrimaryScreen;
+            if (curScreen == null || !Screen.AllScreens.Any(sc => sc.DeviceName == curScreen.DeviceName)) curScreen = Screen.PrimaryScreen;
+            Screen scr = cfg.MultiMonitor ? curScreen : Screen.PrimaryScreen;
             float restTotal = all.Sum(i => Slot(i));
             W = (int)Math.Min(scr.Bounds.Width, restTotal + PadX * 2 + Ic * (MaxMag - 1f) * 3f + 240 * s);
             H = (int)(BottomM + BarH + Ic * Math.Max(MaxMag - 1f, 0.6f) + 50 * s);
@@ -1446,7 +1495,7 @@ namespace MacDock
 
             var bst = BatteryGlyph.Read();
             float pct = bst.Pct;
-            if (bst.HasBattery)
+            if (!DeviceProfile.IsDesktop && bst.HasBattery)
             {
                 float bw = r.Width * 0.24f, bh = r.Height * 0.11f;
                 float bx = r.X + r.Width * 0.2f, by = r.Y + r.Height * 0.73f;
@@ -1454,6 +1503,12 @@ namespace MacDock
                 using (var f3 = new Font(UiFont.Reg, r.Width * 0.13f, FontStyle.Regular, GraphicsUnit.Pixel))
                 using (var b3 = new SolidBrush(Color.FromArgb(90, 90, 96)))
                     g.DrawString((int)Math.Round(pct * 100) + "%", f3, b3, bx + bw * 1.15f, by - r.Height * 0.035f);
+            }
+            else
+            {
+                using (var f3 = new Font(UiFont.Semi, r.Width * 0.125f, FontStyle.Regular, GraphicsUnit.Pixel))
+                using (var b3 = new SolidBrush(Color.FromArgb(10, 122, 255)))
+                    g.DrawString("CONTROL", f3, b3, new RectangleF(r.X, r.Y + r.Height * 0.69f, r.Width, r.Height * 0.22f), sf);
             }
         }
 
@@ -1511,6 +1566,7 @@ namespace MacDock
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
+            ClosePreview();
             int i = HitIndex(e.X);
             pressItem = i >= 0 ? all[i] : null;
             pressPt = e.Location;
@@ -1542,10 +1598,14 @@ namespace MacDock
 
         void Activate(DockItem it)
         {
+            ClosePreview();
             switch (it.Kind)
             {
                 case Kind.Start: if (cfg.Launchpad) Launchpad.Toggle(s); else N.PressKeys(0x5B); return;
-                case Kind.Clock: N.PressKeys(0x5B, 0x41); return;
+                case Kind.Clock:
+                    var ccAnchor = new Point(winX + (int)(it.X + it.W / 2), winY + (int)(SlidePx + BarTop - 6 * s));
+                    ControlCenter.Toggle(s, light, ccAnchor, curScreen.Bounds, false, ToggleTheme);
+                    return;
                 case Kind.Downloads: it.Badge = 0; Render(); ToggleStack(it); return;
                 case Kind.Stack: ToggleStack(it); return;
                 case Kind.Trash: Process.Start("explorer.exe", "shell:RecycleBinFolder"); return;
@@ -1574,8 +1634,8 @@ namespace MacDock
             if ((DateTime.Now - stackClosedAt).TotalMilliseconds < 300 && closedKind == it.Kind) return;
             var anchor = new Point(winX + (int)(it.X + it.W / 2), winY + (int)(SlidePx + BarTop - 8 * s));
             stackPopup = it.Kind == Kind.Downloads
-                ? new StackPopup(s, light, anchor, Screen.PrimaryScreen.Bounds, "Descargas", new[] { it.Target }, true)
-                : new StackPopup(s, light, anchor, Screen.PrimaryScreen.Bounds);
+                ? new StackPopup(s, light, anchor, curScreen.Bounds, "Descargas", new[] { it.Target }, true)
+                : new StackPopup(s, light, anchor, curScreen.Bounds);
             stackPopup.FormClosed += (o, e) => { stackClosedAt = DateTime.Now; closedKind = stackKind; stackPopup = null; };
             stackPopup.Show();
             N.SetForegroundWindow(stackPopup.Handle);
@@ -1596,13 +1656,14 @@ namespace MacDock
         void Add(ContextMenuStrip m, string text, Action a, bool bold = false)
         {
             var mi = new ToolStripMenuItem(text);
-            if (bold) mi.Font = new Font(m.Font, FontStyle.Bold);
+            if (bold) mi.Font = MenuStyle.MenuFontBold;
             mi.Click += (o, e) => { try { a(); } catch (Exception ex) { Program.Log(ex); } };
             m.Items.Add(mi);
         }
 
         void ShowMenu(DockItem it)
         {
+            ClosePreview();
             var m = NewMenu();
             if (it != null && it.Kind == Kind.App)
             {
@@ -1650,7 +1711,8 @@ namespace MacDock
             }
             else if (it != null && it.Kind == Kind.Clock)
             {
-                Add(m, "Wi-Fi, volumen y bateria", () => N.PressKeys(0x5B, 0x41), true);
+                Add(m, "Abrir Centro de Control (estilo macOS)", () => Activate(it), true);
+                Add(m, "Panel rápido de Windows (Win + A)", () => N.PressKeys(0x5B, 0x41));
                 Add(m, "Notificaciones y calendario", () => N.PressKeys(0x5B, 0x4E));
                 Add(m, "Configuracion de Windows", () => Process.Start("ms-settings:"));
                 m.Items.Add(new ToolStripSeparator());
@@ -1658,7 +1720,7 @@ namespace MacDock
             else if (it != null && it.Kind == Kind.Stack)
             {
                 Add(m, "Ver lo que hay en el escritorio", () => ToggleStack(it), true);
-                Add(m, DesktopIcons.Visible ? "Ocultar iconos del escritorio" : "Mostrar iconos del escritorio", () => DesktopIcons.Toggle());
+                Add(m, DesktopIcons.Visible ? "Ocultar iconos del escritorio" : "Mostrar iconos del escritorio", () => { DesktopIcons.Toggle(); deskIconsCached = DesktopIcons.Visible; });
                 Add(m, "Abrir en el Explorador", () => Process.Start("explorer.exe", "\"" + it.Target + "\""));
                 m.Items.Add(new ToolStripSeparator());
             }
@@ -1676,18 +1738,57 @@ namespace MacDock
                 mi.Click += (o, e) => { try { act(); } catch (Exception ex) { Program.Log(ex); } };
                 opts.DropDownItems.Add(mi);
             };
+
+            // Selector de modo PC de Escritorio vs Laptop
+            var modeMenu = new ToolStripMenuItem("Modo de equipo (" + (DeviceProfile.IsDesktop ? "PC de Escritorio" : "Laptop") + ")");
+            Action<string, int> addMode = (txt, md) =>
+            {
+                var mi = new ToolStripMenuItem(txt) { Checked = cfg.DeviceMode == md };
+                mi.Click += (o, e) =>
+                {
+                    cfg.DeviceMode = md; cfg.Save();
+                    ApplyRefresh(); UpdateNap();
+                    if (bar != null) bar.Redraw(true);
+                    Render();
+                };
+                modeMenu.DropDownItems.Add(mi);
+            };
+            addMode("Automático (Detecta si tiene batería)", 0);
+            addMode("Forzar modo PC de Escritorio (Alto Rendimiento)", 1);
+            addMode("Forzar modo Laptop (Batería y Eficiencia)", 2);
+            opts.DropDownItems.Add(modeMenu);
+
+            addOpt("Modo Gaming / Render 0% CPU (pantalla completa y sin bordes)", cfg.GamingMode, () => { cfg.GamingMode = !cfg.GamingMode; cfg.Save(); });
+            opts.DropDownItems.Add(new ToolStripSeparator());
+
             addOpt("Efecto lupa", cfg.Magnify, () => { cfg.Magnify = !cfg.Magnify; cfg.Save(); Relayout(); });
+            addOpt("Vista previa de ventanas al pasar el mouse", cfg.WindowPreviews, () => { cfg.WindowPreviews = !cfg.WindowPreviews; cfg.Save(); if (!cfg.WindowPreviews) ClosePreview(); });
+            addOpt("Soporte multi-monitor (dock y barra superior)", cfg.MultiMonitor, () =>
+            {
+                cfg.MultiMonitor = !cfg.MultiMonitor; cfg.Save();
+                if (!cfg.MultiMonitor) curScreen = Screen.PrimaryScreen;
+                Relayout();
+                if (appBarOn) SetAppBarPos();
+                if (bar != null) bar.SetMultiMonitor(cfg.MultiMonitor);
+            });
             addOpt("Ocultar cuando una ventana lo tape", cfg.AutoHide && !cfg.ReserveSpace, () =>
             {
                 cfg.AutoHide = !(cfg.AutoHide && !cfg.ReserveSpace);
                 if (cfg.AutoHide && cfg.ReserveSpace) { cfg.ReserveSpace = false; UnregisterAppBar(); }
                 cfg.Save();
             });
-            addOpt("Pantalla a 60 Hz con bateria (ahorro)", cfg.AutoRefresh, () =>
+            if (!DeviceProfile.IsDesktop)
             {
-                cfg.AutoRefresh = !cfg.AutoRefresh; cfg.Save();
-                lastPower = (PowerLineStatus)(-1); ApplyRefresh();
-            });
+                addOpt("Pantalla a 60 Hz con bateria (ahorro Laptop)", cfg.AutoRefresh, () =>
+                {
+                    cfg.AutoRefresh = !cfg.AutoRefresh; cfg.Save();
+                    lastPower = (PowerLineStatus)(-1); ApplyRefresh();
+                });
+                addOpt("App Nap: apps sin usar en modo eficiencia (con bateria)", cfg.AppNap, () =>
+                {
+                    cfg.AppNap = !cfg.AppNap; cfg.Save(); UpdateNap();
+                });
+            }
             addOpt("Menu de Mac al hacer clic derecho en el escritorio", cfg.DesktopMenu, () => { cfg.DesktopMenu = !cfg.DesktopMenu; cfg.Save(); SetDesktopMenu(cfg.DesktopMenu); });
             addOpt("Botones de Mac en todas las ventanas", cfg.MacButtons, () => { cfg.MacButtons = !cfg.MacButtons; cfg.Save(); SetMacButtons(cfg.MacButtons); });
             addOpt("Abrir Finder en vez del Explorador", cfg.UseFinder, () => { cfg.UseFinder = !cfg.UseFinder; cfg.Save(); });
@@ -1699,7 +1800,7 @@ namespace MacDock
             addOpt("Vista rapida con Espacio en el Explorador", cfg.QuickLookExplorer, () =>
             {
                 cfg.QuickLookExplorer = !cfg.QuickLookExplorer; cfg.Save();
-                SetKeyHook(KeyHookWanted);
+                if (!cfg.QuickLookExplorer) SetKeyHook(false);   // con la opcion encendida, el reloj de entrada registra Espacio cuando hace falta
             });
             addOpt("Launchpad en el dock (Alt + Shift + Espacio)", cfg.Launchpad, () =>
             {
@@ -1735,7 +1836,7 @@ namespace MacDock
             {
                 cfg.AppSwitcher = !cfg.AppSwitcher; cfg.Save();
                 if (!cfg.AppSwitcher) AppSwitcher.Cancel();
-                SetKeyHook(KeyHookWanted);
+                SetSwitcherKeys(cfg.AppSwitcher);
             });
             addOpt("Modo claro de dia, oscuro de noche", cfg.AutoTheme, () =>
             {
@@ -1749,11 +1850,7 @@ namespace MacDock
             {
                 cfg.MenuBar = !cfg.MenuBar; cfg.Save(); SetMenuBar(cfg.MenuBar);
             });
-            addOpt("Escritorio limpio (ocultar iconos)", !DesktopIcons.Visible, () => DesktopIcons.Toggle());
-            addOpt("App Nap: apps sin usar en modo eficiencia (con bateria)", cfg.AppNap, () =>
-            {
-                cfg.AppNap = !cfg.AppNap; cfg.Save(); UpdateNap();
-            });
+            addOpt("Escritorio limpio (ocultar iconos)", !DesktopIcons.Visible, () => { DesktopIcons.Toggle(); deskIconsCached = DesktopIcons.Visible; });
             addOpt("Esquinas activas (arriba-izq: ventanas, abajo-izq: escritorio)", cfg.HotCorners, () =>
             {
                 cfg.HotCorners = !cfg.HotCorners; cfg.Save();
@@ -1792,12 +1889,17 @@ namespace MacDock
         void SetupTaskbar()
         {
             if (!cfg.HideTaskbar) return;
-            var abd = new N.APPBARDATA(); abd.cbSize = Marshal.SizeOf(typeof(N.APPBARDATA));
-            abd.hWnd = N.FindWindow("Shell_TrayWnd", null);
-            int state = (int)N.SHAppBarMessage(4, ref abd);
-            savedAutoHide = (state & 1) != 0; haveSavedState = true;
-            if (!savedAutoHide) { abd.lParam = new IntPtr(state | 1); N.SHAppBarMessage(10, ref abd); }
+            IntPtr mainTray = N.FindWindow("Shell_TrayWnd", null);
+            if (mainTray != IntPtr.Zero)
+            {
+                var abd = new N.APPBARDATA(); abd.cbSize = Marshal.SizeOf(typeof(N.APPBARDATA));
+                abd.hWnd = mainTray;
+                int state = (int)N.SHAppBarMessage(4, ref abd);
+                if (!haveSavedState) { savedAutoHide = (state & 1) != 0; haveSavedState = true; }
+                if ((state & 1) == 0) { abd.lParam = new IntPtr(state | 1); N.SHAppBarMessage(10, ref abd); }
+            }
             HideTaskbarIfShown();
+            EnsureFullWorkingArea();
         }
 
         void HideTaskbarIfShown()
@@ -1806,10 +1908,80 @@ namespace MacDock
             if (DateTime.Now < trayUntil) return;
             IntPtr fg = N.GetForegroundWindow();
             string fc = fg != IntPtr.Zero ? N.ClassOf(fg) : "";
-            if (fc == "Windows.UI.Core.CoreWindow" || fc == "Shell_TrayWnd" || fc == "Shell_SecondaryTrayWnd" ||
-                fc == "XamlExplorerHostIslandWindow" || fc == "TopLevelWindowForOverflowXamlIsland" || fc == "NotifyIconOverflowWindow")
+            if (fc == "TopLevelWindowForOverflowXamlIsland" || fc == "NotifyIconOverflowWindow")
                 return;
-            foreach (var t in Trays()) if (N.IsWindowVisible(t)) N.ShowWindow(t, 0);
+            bool anyHidden = false;
+            IntPtr mainTray = N.FindWindow("Shell_TrayWnd", null);
+            if (mainTray != IntPtr.Zero && N.IsWindowVisible(mainTray))
+            {
+                var abd = new N.APPBARDATA(); abd.cbSize = Marshal.SizeOf(typeof(N.APPBARDATA));
+                abd.hWnd = mainTray;
+                int state = (int)N.SHAppBarMessage(4, ref abd);
+                if ((state & 1) == 0) { abd.lParam = new IntPtr(state | 1); N.SHAppBarMessage(10, ref abd); }
+            }
+            foreach (var t in Trays())
+            {
+                if (N.IsWindowVisible(t))
+                {
+                    N.ShowWindow(t, 0);
+                    anyHidden = true;
+                }
+            }
+            if (anyHidden || NeedsWorkingAreaFix())
+                EnsureFullWorkingArea();
+        }
+
+        bool NeedsWorkingAreaFix()
+        {
+            if (!cfg.HideTaskbar || cfg.ReserveSpace) return false;
+            foreach (var scr in Screen.AllScreens)
+            {
+                if (scr.WorkingArea.Bottom < scr.Bounds.Bottom - 2) return true;
+            }
+            return false;
+        }
+
+        // Si al reiniciar explorer.exe Windows dejo reservados los 48px inferiores de la barra de tareas
+        // (mostrando una franja del fondo de pantalla abajo), libera ese espacio en todos los monitores y reajusta las ventanas maximizadas.
+        void EnsureFullWorkingArea()
+        {
+            if (!cfg.HideTaskbar || cfg.ReserveSpace) return;
+            try
+            {
+                bool changed = false;
+                foreach (var scr in Screen.AllScreens)
+                {
+                    var b = scr.Bounds;
+                    var wa = scr.WorkingArea;
+                    int wantTop = b.Top + (bar != null && (scr.Primary || cfg.MultiMonitor) ? bar.BarHeight : 0);
+                    if (wa.Bottom < b.Bottom - 2 || Math.Abs(wa.Top - wantTop) > 4)
+                    {
+                        var rc = new N.RECT { left = b.Left, top = wantTop, right = b.Right, bottom = b.Bottom };
+                        N.SpiRect(0x002F, 0, ref rc, 0); // SPI_SETWORKAREA
+                        changed = true;
+                    }
+                }
+                if (changed)
+                {
+                    if (bar != null) bar.ReRegister();
+                    N.EnumWindows((h, l) =>
+                    {
+                        if (N.IsWindowVisible(h) && N.IsZoomed(h))
+                        {
+                            var scr = Screen.FromHandle(h);
+                            var wa = scr.WorkingArea;
+                            N.RECT wr;
+                            if (N.GetWindowRect(h, out wr) && wr.bottom < scr.Bounds.Bottom - 16)
+                            {
+                                N.ShowWindow(h, 9); // SW_RESTORE
+                                N.ShowWindow(h, 3); // SW_MAXIMIZE
+                            }
+                        }
+                        return true;
+                    }, IntPtr.Zero);
+                }
+            }
+            catch { }
         }
 
         void RegisterAppBar()
@@ -1825,7 +1997,7 @@ namespace MacDock
         void SetAppBarPos()
         {
             if (!appBarOn) return;
-            var b = Screen.PrimaryScreen.Bounds;
+            var b = (cfg.MultiMonitor ? curScreen : Screen.PrimaryScreen).Bounds;
             var abd = new N.APPBARDATA(); abd.cbSize = Marshal.SizeOf(typeof(N.APPBARDATA));
             abd.hWnd = Handle; abd.uEdge = 3;
             abd.rc.left = b.Left; abd.rc.right = b.Right; abd.rc.bottom = b.Bottom;
@@ -1845,10 +2017,10 @@ namespace MacDock
 
         void CheckFullscreen()
         {
-            bool full = FullscreenApp.Active(Handle);
+            bool full = FullscreenApp.Active(Handle, cfg.MultiMonitor ? curScreen : Screen.PrimaryScreen);
+            if (bar != null) bar.CheckFullscreenState();
             if (full == fullApp) return;
             fullApp = full;
-            if (bar != null) bar.SetFull(full);
             if (macBtns != null) macBtns.SetPaused(full);
             global::MacDock.Widgets.SetPaused(full);
         }
@@ -1860,6 +2032,7 @@ namespace MacDock
         void HideDock()
         {
             peeking = false;
+            ClosePreview();
             if (hiddenFull || slideTarget == 1f) return;
             slideTarget = 1f; StartAnim();
         }
@@ -1894,18 +2067,38 @@ namespace MacDock
             return r.bottom > top && r.top < winY + H && r.right > left && r.left < right;
         }
 
-        // Cada 120 ms: decide si el dock se ve, se esconde o se asoma al llevar el mouse al borde inferior.
+        // Cada 120 ms: decide si el dock se ve, se esconde, cambia de monitor o se asoma al llevar el mouse al borde inferior.
         void EdgeTick(object sender, EventArgs e)
         {
             if (restored || all.Count == 0) return;
             if (menuOpen || dragging || stackPopup != null) return;
-            if (cfg.HotCorners && !fullApp) corners.Tick(Screen.PrimaryScreen, bar != null);
-            bool hide = fullApp || (cfg.AutoHide && !cfg.ReserveSpace && Covered());
+            if (previewPopup != null && !previewPopup.IsDisposed)
+            {
+                if (previewPopup.IsMouseInsideOrBridge(Cursor.Position)) return;
+                if (hoverIdx < 0) ClosePreview();
+            }
             Point c = Cursor.Position;
-            var b = Screen.PrimaryScreen.Bounds;
+            var mouseScr = Screen.FromPoint(c);
+            if (cfg.MultiMonitor && Screen.AllScreens.Length > 1 && mouseScr.DeviceName != curScreen.DeviceName)
+            {
+                var mb = mouseScr.Bounds;
+                if (c.Y >= mb.Bottom - 4 && c.X >= mb.Left + mb.Width * 0.15f && c.X <= mb.Right - mb.Width * 0.15f && !FullscreenApp.Active(Handle, mouseScr))
+                {
+                    curScreen = mouseScr;
+                    Relayout();
+                    if (appBarOn) SetAppBarPos();
+                    peeking = true; leaveSince = DateTime.MaxValue;
+                    ShowDock();
+                    return;
+                }
+            }
+
+            if (cfg.HotCorners && !fullApp) corners.Tick(cfg.MultiMonitor ? mouseScr : Screen.PrimaryScreen, bar != null);
+            bool hide = fullApp || (cfg.AutoHide && !cfg.ReserveSpace && Covered());
+            var b = (cfg.MultiMonitor ? curScreen : Screen.PrimaryScreen).Bounds;
             bool inX = c.X >= winX && c.X <= winX + W;
             float zoneTop = winY + BarTop - (mag > 0.05f ? Ic * (MaxMag - 1f) : 0f) - 10 * s;
-            bool overZone = inX && c.Y >= zoneTop;
+            bool overZone = inX && c.Y >= zoneTop && c.Y <= b.Bottom + 4;
 
             if (!hide)
             {
@@ -1926,9 +2119,16 @@ namespace MacDock
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == 0x0312 && m.WParam.ToInt32() == 7) { Spotlight.Toggle(light, s); return; }
+            if (m.Msg == 0x0312 && m.WParam.ToInt32() == 8)
+            {
+                if (QuickLook.IsOpenAndFocused()) QuickLook.Toggle(null, light);
+                else QuickLookExplorer(N.GetForegroundWindow());
+                return;
+            }
             if (msgFinder != 0 && m.Msg == msgFinder) { Finder.OpenOrFocus(light, s); return; }
             if (msgSpot != 0 && m.Msg == msgSpot) { Spotlight.Toggle(light, s); return; }
-            if ((m.Msg == 0x0312 && m.WParam.ToInt32() == 8) || (msgLaunchpad != 0 && m.Msg == msgLaunchpad)) { Launchpad.Toggle(s); return; }
+            if ((m.Msg == 0x0312 && m.WParam.ToInt32() == 20) || (msgLaunchpad != 0 && m.Msg == msgLaunchpad)) { Launchpad.Toggle(s); return; }
+            if (m.Msg == 0x0312 && m.WParam.ToInt32() >= 30 && m.WParam.ToInt32() <= 39) { OnSwitcherHotKey(m.WParam.ToInt32()); return; }
             if (m.Msg == appBarMsg && appBarMsg != 0)
             {
                 if (m.WParam.ToInt32() == 1) SetAppBarPos();
@@ -1937,10 +2137,16 @@ namespace MacDock
             {
                 BeginInvoke(new Action(() =>
                 {
-                    HideTaskbarIfShown();
+                    SetupTaskbar();
                     if (appBarOn) { appBarOn = false; RegisterAppBar(); }
                     if (bar != null) bar.ReRegister();
                     global::MacDock.Widgets.Restart();   // el escritorio nuevo necesita sus widgets de vuelta
+                    foreach (int delay in new[] { 700, 1800, 3200 })
+                    {
+                        var t = new System.Windows.Forms.Timer { Interval = delay };
+                        t.Tick += (s2, a2) => { t.Stop(); t.Dispose(); if (!restored) { SetupTaskbar(); if (bar != null) bar.ReRegister(); } };
+                        t.Start();
+                    }
                 }));
             }
             else if (m.Msg == 0x0011 || m.Msg == 0x0016)
@@ -1979,6 +2185,252 @@ namespace MacDock
         {
             SafeRestore();
             base.OnFormClosing(e);
+        }
+    }
+
+    // Vista previa en miniatura en vivo (DWM) al pasar el mouse por una app abierta en el Dock.
+    class DockPreview : Form
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        struct DWM_THUMBNAIL_PROPERTIES
+        {
+            public int dwFlags;
+            public N.RECT rcDestination;
+            public N.RECT rcSource;
+            public byte opacity;
+            [MarshalAs(UnmanagedType.Bool)] public bool fVisible;
+            [MarshalAs(UnmanagedType.Bool)] public bool fSourceClientAreaOnly;
+        }
+
+        [DllImport("dwmapi.dll")] static extern int DwmRegisterThumbnail(IntPtr dest, IntPtr src, out IntPtr thumb);
+        [DllImport("dwmapi.dll")] static extern int DwmUnregisterThumbnail(IntPtr thumb);
+        [DllImport("dwmapi.dll")] static extern int DwmQueryThumbnailSourceSize(IntPtr thumb, out N.SIZE size);
+        [DllImport("dwmapi.dll")] static extern int DwmUpdateThumbnailProperties(IntPtr thumb, ref DWM_THUMBNAIL_PROPERTIES props);
+        [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int val, int size);
+
+        class WinSlot
+        {
+            public IntPtr Hwnd;
+            public IntPtr Thumb;
+            public string Title;
+            public Rectangle CardRect;
+            public Rectangle CloseRect;
+            public bool FallbackIcon;
+        }
+
+        float s; bool light;
+        DockItem item;
+        List<WinSlot> slots = new List<WinSlot>();
+        int hoverIdx = -1; bool hoverClose = false;
+        Action<IntPtr> onFocus;
+        Action onChanged;
+
+        public DockPreview(float scale, bool lightTheme, DockItem dockItem, Point anchorBottomCenter, Rectangle screen, Action<IntPtr> focusAction, Action changedAction)
+        {
+            s = scale; light = lightTheme; item = dockItem; onFocus = focusAction; onChanged = changedAction;
+            FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true;
+            StartPosition = FormStartPosition.Manual; DoubleBuffered = true;
+            BackColor = light ? Color.FromArgb(244, 244, 248) : Color.FromArgb(34, 34, 40);
+
+            var wins = item.Windows.Where(win => N.IsWindowVisible(win)).Take(4).ToList();
+            if (wins.Count == 0) wins = item.Windows.Take(4).ToList();
+            int cardW = (int)(192 * s), cardH = (int)(136 * s), pad = (int)(10 * s), gap = (int)(8 * s);
+            int n = Math.Max(1, wins.Count);
+            int w = pad * 2 + n * cardW + (n - 1) * gap;
+            int h = pad * 2 + cardH;
+
+            for (int i = 0; i < wins.Count; i++)
+            {
+                int cx = pad + i * (cardW + gap);
+                var cr = new Rectangle(cx, pad, cardW, cardH);
+                string t = N.TitleOf(wins[i]);
+                if (string.IsNullOrEmpty(t)) t = item.Name;
+                slots.Add(new WinSlot
+                {
+                    Hwnd = wins[i],
+                    Title = t,
+                    CardRect = cr,
+                    CloseRect = new Rectangle(cr.Right - (int)(24 * s), cr.Top + (int)(5 * s), (int)(18 * s), (int)(18 * s))
+                });
+            }
+
+            int x = Math.Max(screen.Left + 8, Math.Min(screen.Right - w - 8, anchorBottomCenter.X - w / 2));
+            int y = Math.Max(screen.Top + 8, anchorBottomCenter.Y - h);
+            Bounds = new Rectangle(x, y, w, h);
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get { var cp = base.CreateParams; cp.ExStyle |= 0x80 | 0x8000000; cp.ClassStyle |= 0x20000; return cp; }
+        }
+        protected override bool ShowWithoutActivation { get { return true; } }
+
+        public bool IsMouseInsideOrBridge(Point screenPt)
+        {
+            if (IsDisposed) return false;
+            var r = Bounds;
+            r.Inflate((int)(12 * s), (int)(36 * s));
+            return r.Contains(screenPt);
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            try
+            {
+                int round = 2; DwmSetWindowAttribute(Handle, 33, ref round, 4);
+                int dark = light ? 0 : 1; DwmSetWindowAttribute(Handle, 20, ref dark, 4);
+                int border = light ? 0x00CFCFD6 : 0x00484852; DwmSetWindowAttribute(Handle, 34, ref border, 4);
+            }
+            catch { }
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            RegisterThumbnails();
+        }
+
+        void RegisterThumbnails()
+        {
+            foreach (var sl in slots)
+            {
+                IntPtr th;
+                if (DwmRegisterThumbnail(Handle, sl.Hwnd, out th) == 0 && th != IntPtr.Zero)
+                {
+                    sl.Thumb = th;
+                    N.SIZE srcSz;
+                    if (DwmQueryThumbnailSourceSize(th, out srcSz) == 0 && srcSz.cx > 20 && srcSz.cy > 20)
+                    {
+                        var box = new Rectangle(sl.CardRect.X + (int)(8 * s), sl.CardRect.Y + (int)(26 * s), sl.CardRect.Width - (int)(16 * s), sl.CardRect.Height - (int)(34 * s));
+                        float k = Math.Min((float)box.Width / srcSz.cx, (float)box.Height / srcSz.cy);
+                        int tw = Math.Max(1, (int)(srcSz.cx * k)), thH = Math.Max(1, (int)(srcSz.cy * k));
+                        int tx = box.X + (box.Width - tw) / 2, ty = box.Y + (box.Height - thH) / 2;
+                        var pr = new DWM_THUMBNAIL_PROPERTIES
+                        {
+                            dwFlags = 0x1 | 0x4 | 0x8, // DWM_TNP_RECTDESTINATION | DWM_TNP_OPACITY | DWM_TNP_VISIBLE
+                            rcDestination = new N.RECT { left = tx, top = ty, right = tx + tw, bottom = ty + thH },
+                            opacity = 255,
+                            fVisible = true,
+                            fSourceClientAreaOnly = false
+                        };
+                        DwmUpdateThumbnailProperties(th, ref pr);
+                    }
+                    else sl.FallbackIcon = true;
+                }
+                else sl.FallbackIcon = true;
+            }
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs pe)
+        {
+            var g = pe.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+
+            Color fg = light ? Color.FromArgb(24, 24, 28) : Color.FromArgb(238, 238, 244);
+            Color hovBg = light ? Color.FromArgb(224, 224, 232) : Color.FromArgb(54, 54, 64);
+            Color cardBg = light ? Color.FromArgb(234, 234, 240) : Color.FromArgb(42, 42, 50);
+
+            using (var f = new Font(UiFont.Semi, 11.5f * s, FontStyle.Regular, GraphicsUnit.Pixel))
+            using (var fgB = new SolidBrush(fg))
+            {
+                var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap, LineAlignment = StringAlignment.Center };
+                for (int i = 0; i < slots.Count; i++)
+                {
+                    var sl = slots[i];
+                    bool on = i == hoverIdx;
+                    using (var p = Round(sl.CardRect, 8 * s))
+                    using (var b = new SolidBrush(on ? hovBg : cardBg))
+                        g.FillPath(b, p);
+
+                    var tr = new RectangleF(sl.CardRect.X + 8 * s, sl.CardRect.Y + 4 * s, sl.CardRect.Width - (on ? 32 * s : 16 * s), 20 * s);
+                    g.DrawString(sl.Title, f, fgB, tr, sf);
+
+                    if (on)
+                    {
+                        using (var cb = new SolidBrush(hoverClose ? Color.FromArgb(255, 69, 58) : Color.FromArgb(120, 120, 130)))
+                            g.FillEllipse(cb, sl.CloseRect);
+                        using (var pen = new Pen(Color.White, 1.5f * s))
+                        {
+                            float cx = sl.CloseRect.X + sl.CloseRect.Width / 2f, cy = sl.CloseRect.Y + sl.CloseRect.Height / 2f, d = 3.2f * s;
+                            g.DrawLine(pen, cx - d, cy - d, cx + d, cy + d);
+                            g.DrawLine(pen, cx - d, cy + d, cx + d, cy - d);
+                        }
+                    }
+
+                    if (sl.FallbackIcon && item.Icon != null)
+                    {
+                        float isz = 54 * s;
+                        g.DrawImage(item.Icon, sl.CardRect.X + (sl.CardRect.Width - isz) / 2f, sl.CardRect.Y + 26 * s + (sl.CardRect.Height - 26 * s - isz) / 2f, isz, isz);
+                    }
+                }
+            }
+        }
+
+        static GraphicsPath Round(RectangleF r, float rad)
+        {
+            var p = new GraphicsPath(); float d = rad * 2;
+            p.AddArc(r.X, r.Y, d, d, 180, 90); p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+            p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90); p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+            p.CloseFigure(); return p;
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            int hi = -1; bool hc = false;
+            for (int i = 0; i < slots.Count; i++)
+            {
+                if (slots[i].CardRect.Contains(e.Location))
+                {
+                    hi = i;
+                    hc = slots[i].CloseRect.Contains(e.Location);
+                    break;
+                }
+            }
+            if (hi != hoverIdx || hc != hoverClose) { hoverIdx = hi; hoverClose = hc; Invalidate(); }
+            Cursor = hi >= 0 ? Cursors.Hand : Cursors.Default;
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            if (hoverIdx != -1) { hoverIdx = -1; hoverClose = false; Invalidate(); }
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            if (e.Button != MouseButtons.Left) return;
+            for (int i = 0; i < slots.Count; i++)
+            {
+                if (slots[i].CardRect.Contains(e.Location))
+                {
+                    IntPtr h = slots[i].Hwnd;
+                    if (slots[i].CloseRect.Contains(e.Location))
+                    {
+                        N.PostMessage(h, 0x10, IntPtr.Zero, IntPtr.Zero);
+                        Close();
+                        if (onChanged != null) onChanged();
+                    }
+                    else
+                    {
+                        Close();
+                        if (onFocus != null) onFocus(h);
+                    }
+                    return;
+                }
+            }
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            foreach (var sl in slots)
+                if (sl.Thumb != IntPtr.Zero) { try { DwmUnregisterThumbnail(sl.Thumb); } catch { } sl.Thumb = IntPtr.Zero; }
+            base.OnFormClosed(e);
         }
     }
 }

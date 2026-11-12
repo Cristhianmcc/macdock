@@ -229,4 +229,5 @@ El resultado queda en `dist\` y en `descargas\MacDock-Instalador.zip`.
 
 - Código: **MIT** — ver [LICENSE](LICENSE).
 - Fuente **Inter** © The Inter Project Authors, licencia **SIL Open Font License 1.1** ([src/fonts/OFL.txt](src/fonts/OFL.txt)).
-- Hecho con ❤️ por [Cristhianmcc](https://github.com/Cristhianmcc). Si te sirvió, deja una ⭐ y compártelo.
+- Hecho con ❤️ por [Cristhianmcc](https://github.com/Cristhianmcc).
+- Centro de Control, vistas previas del dock, multi-monitor y modo juego: aporte de Franco Pantoja ([PR #1](https://github.com/Cristhianmcc/macdock/pull/1)), integrado sin la exclusión de Windows Defender. Si te sirvió, deja una ⭐ y compártelo.

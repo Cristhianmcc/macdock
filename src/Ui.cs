@@ -11,6 +11,8 @@ namespace MacDock
     static class MenuStyle
     {
         [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int val, int size);
+        public static readonly Font MenuFont = new Font(UiFont.Reg, 9.75f);
+        public static readonly Font MenuFontBold = new Font(UiFont.Reg, 9.75f, FontStyle.Bold);
 
         public static ContextMenuStrip New(bool light)
         {
@@ -18,7 +20,7 @@ namespace MacDock
             m.ShowImageMargin = false;
             m.ShowCheckMargin = false;
             m.Renderer = new MacRenderer(light);
-            m.Font = new Font(UiFont.Reg, 9.75f);
+            m.Font = MenuFont;
             m.Padding = new Padding(5, 5, 5, 5);
             m.DropShadowEnabled = true;
             Hook(m, light);

@@ -1,9 +1,19 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using System.Text;
+
+[assembly: AssemblyTitle("MacDock")]
+[assembly: AssemblyDescription("Entorno de escritorio ligero estilo macOS para Windows 10/11")]
+[assembly: AssemblyConfiguration("Release")]
+[assembly: AssemblyCompany("MacDock Open Source Project")]
+[assembly: AssemblyProduct("MacDock")]
+[assembly: AssemblyCopyright("Copyright © 2026 MacDock Contributors - MIT License")]
+[assembly: AssemblyVersion("3.9.0.0")]
+[assembly: AssemblyFileVersion("3.9.0.0")]
 
 namespace MacDock
 {
@@ -71,6 +81,7 @@ namespace MacDock
         [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, int flags);
 
         [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr h, int attr, out int val, int size);
+        [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr h, int attr, out RECT val, int size);
         [DllImport("kernel32.dll")] public static extern IntPtr OpenProcess(int access, bool inherit, uint pid);
         [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern bool QueryFullProcessImageName(IntPtr h, int flags, StringBuilder sb, ref int size);
@@ -83,6 +94,7 @@ namespace MacDock
         [DllImport("shell32.dll")] public static extern int SHGetKnownFolderPath(ref Guid id, int flags, IntPtr token, out IntPtr path);
         [DllImport("ole32.dll")] public static extern void CoTaskMemFree(IntPtr p);
         [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SystemParametersInfoW")] public static extern bool SpiStr(int a, int u, string p, int f);
+        [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW")] public static extern bool SpiRect(int a, int u, ref RECT p, int f);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr SendMessageTimeout(IntPtr h, int msg, IntPtr w, string l, int flags, int timeout, out IntPtr res);
         public static void BroadcastSetting(string what) { IntPtr r; SendMessageTimeout(new IntPtr(0xffff), 0x1A, IntPtr.Zero, what, 2, 2000, out r); }
 
@@ -248,23 +260,134 @@ namespace MacDock
             Marshal.ReleaseComObject(link);
         }
 
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        struct SHFILEINFO
+        {
+            public IntPtr hIcon;
+            public int iIcon;
+            public uint dwAttributes;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string szDisplayName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 80)] public string szTypeName;
+        }
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        static extern IntPtr SHGetFileInfo(string pszPath, uint dwFileAttributes, ref SHFILEINFO psfi, uint cbFileInfo, uint uFlags);
+        [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr hIcon);
+
         public static Bitmap GetIcon(string path, int px, int flags = 4)
         {
             IShellItemImageFactory f = null; IntPtr hb = IntPtr.Zero;
             try
             {
                 Guid g = typeof(IShellItemImageFactory).GUID;
-                if (SHCreateItemFromParsingName(path, IntPtr.Zero, ref g, out f) != 0 || f == null) return null;
-                var sz = new N.SIZE(); sz.cx = px; sz.cy = px;
-                if (f.GetImage(sz, flags, out hb) != 0 || hb == IntPtr.Zero) return null;
-                return FromHBitmap(hb);
+                if (SHCreateItemFromParsingName(path, IntPtr.Zero, ref g, out f) == 0 && f != null)
+                {
+                    var sz = new N.SIZE { cx = px, cy = px };
+                    if (f.GetImage(sz, flags, out hb) != 0 || hb == IntPtr.Zero)
+                    {
+                        hb = IntPtr.Zero;
+                        int altFlag = (flags == 4) ? 0 : 4;
+                        f.GetImage(sz, altFlag, out hb);
+                    }
+                    if (hb != IntPtr.Zero) return FromHBitmap(hb);
+                }
             }
-            catch { return null; }
+            catch { }
             finally
             {
                 if (hb != IntPtr.Zero) N.DeleteObject(hb);
                 if (f != null) Marshal.ReleaseComObject(f);
             }
+
+            // Fallback 1: SHGetFileInfo (icono del sistema para esa carpeta o extension)
+            try
+            {
+                var shfi = new SHFILEINFO();
+                bool isDir = System.IO.Directory.Exists(path);
+                uint attr = isDir ? 0x10u : 0x80u;
+                uint uFlags = 0x100u | 0x0u; // SHGFI_ICON | SHGFI_LARGEICON
+                if (!isDir && !System.IO.File.Exists(path)) uFlags |= 0x10u; // SHGFI_USEFILEATTRIBUTES
+                if (SHGetFileInfo(path, attr, ref shfi, (uint)Marshal.SizeOf(typeof(SHFILEINFO)), uFlags) != IntPtr.Zero && shfi.hIcon != IntPtr.Zero)
+                {
+                    try
+                    {
+                        using (var ico = Icon.FromHandle(shfi.hIcon))
+                            return new Bitmap(ico.ToBitmap());
+                    }
+                    finally { DestroyIcon(shfi.hIcon); }
+                }
+            }
+            catch { }
+
+            // Fallback 2: Dibujar icono vectorial estilo macOS (Carpeta Azul o Documento) para que nunca quede un cuadro gris
+            return DrawMacFallbackIcon(path, px);
+        }
+
+        public static Bitmap DrawMacFallbackIcon(string path, int px)
+        {
+            try
+            {
+                int sz = Math.Max(48, Math.Min(128, px));
+                var bmp = new Bitmap(sz, sz, PixelFormat.Format32bppArgb);
+                bool isDir = false;
+                try { isDir = System.IO.Directory.Exists(path); } catch { }
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    float u = sz / 64f;
+                    if (isDir)
+                    {
+                        using (var pBack = RoundRect(new RectangleF(5 * u, 12 * u, 54 * u, 40 * u), 5 * u))
+                        using (var pTab = RoundRect(new RectangleF(5 * u, 8 * u, 23 * u, 11 * u), 3.5f * u))
+                        using (var bBack = new System.Drawing.Drawing2D.LinearGradientBrush(new RectangleF(0, 8 * u, sz, 44 * u), Color.FromArgb(74, 150, 226), Color.FromArgb(52, 122, 204), 90f))
+                        {
+                            g.FillPath(bBack, pBack);
+                            g.FillPath(bBack, pTab);
+                        }
+                        using (var pFront = RoundRect(new RectangleF(5 * u, 19 * u, 54 * u, 36 * u), 5 * u))
+                        using (var bFront = new System.Drawing.Drawing2D.LinearGradientBrush(new RectangleF(0, 19 * u, sz, 36 * u), Color.FromArgb(132, 196, 252), Color.FromArgb(86, 160, 240), 90f))
+                            g.FillPath(bFront, pFront);
+                    }
+                    else
+                    {
+                        var docRect = new RectangleF(12 * u, 6 * u, 40 * u, 52 * u);
+                        using (var pDoc = RoundRect(docRect, 5 * u))
+                        using (var bDoc = new System.Drawing.Drawing2D.LinearGradientBrush(docRect, Color.FromArgb(250, 250, 254), Color.FromArgb(222, 226, 236), 90f))
+                        using (var pen = new Pen(Color.FromArgb(70, 0, 0, 0), Math.Max(1f, 1.1f * u)))
+                        {
+                            g.FillPath(bDoc, pDoc);
+                            g.DrawPath(pen, pDoc);
+                        }
+                        string ext = "";
+                        try { ext = System.IO.Path.GetExtension(path).TrimStart('.').ToUpperInvariant(); } catch { }
+                        if (ext.Length > 4) ext = ext.Substring(0, 4);
+                        if (ext != "")
+                        {
+                            Color badgeCol = (ext == "ZIP" || ext == "RAR" || ext == "7Z") ? Color.FromArgb(255, 159, 10)
+                                           : (ext == "MP4" || ext == "MOV" || ext == "MKV") ? Color.FromArgb(191, 90, 242)
+                                           : (ext == "PDF" || ext == "DOC" || ext == "DOCX") ? Color.FromArgb(255, 69, 58)
+                                           : Color.FromArgb(10, 132, 255);
+                            var br = new RectangleF(16 * u, 34 * u, 32 * u, 14 * u);
+                            using (var pb = RoundRect(br, 3.5f * u))
+                            using (var bb = new SolidBrush(badgeCol)) g.FillPath(bb, pb);
+                            using (var f = new Font(UiFont.Semi, 8.5f * u, FontStyle.Regular, GraphicsUnit.Pixel))
+                            {
+                                var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                                g.DrawString(ext, f, Brushes.White, br, sf);
+                            }
+                        }
+                    }
+                }
+                return bmp;
+            }
+            catch { return null; }
+        }
+
+        static System.Drawing.Drawing2D.GraphicsPath RoundRect(RectangleF r, float rad)
+        {
+            var p = new System.Drawing.Drawing2D.GraphicsPath(); float d = rad * 2;
+            p.AddArc(r.X, r.Y, d, d, 180, 90); p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+            p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90); p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+            p.CloseFigure(); return p;
         }
 
         static Bitmap FromHBitmap(IntPtr hb)
@@ -299,38 +422,107 @@ namespace MacDock
         }
     }
 
-    // Detecta juegos, videos y presentaciones a pantalla completa (exclusiva o "sin bordes") en la pantalla principal.
+    // Perfil inteligente del equipo: detecta automaticamente si es PC de Escritorio o Laptop, o permite forzarlo.
+    static class DeviceProfile
+    {
+        // 0 = Automatico, 1 = Forzar PC de Escritorio (Alto Rendimiento), 2 = Forzar Laptop (Bateria)
+        public static int Mode = 0;
+        public static bool GamingMode = true;
+
+        public static bool IsDesktop
+        {
+            get
+            {
+                if (Mode == 1) return true;
+                if (Mode == 2) return false;
+                try
+                {
+                    var ps = System.Windows.Forms.SystemInformation.PowerStatus;
+                    return ps.BatteryChargeStatus == System.Windows.Forms.BatteryChargeStatus.NoSystemBattery || ps.BatteryLifePercent < 0f || ps.BatteryLifePercent > 1f;
+                }
+                catch { return true; }
+            }
+        }
+    }
+
+    // Detecta juegos, renders, videos y presentaciones a pantalla completa (exclusiva o "sin bordes" / Borderless Windowed en Windows 11).
     static class FullscreenApp
     {
         [DllImport("shell32.dll")] static extern int SHQueryUserNotificationState(out int state);
         [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr h, out N.RECT r);
         [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref N.POINT p);
         static readonly string[] ShellClasses = { "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "Windows.UI.Core.CoreWindow",
-            "XamlExplorerHostIslandWindow", "TopLevelWindowForOverflowXamlIsland", "#32768", "MultitaskingViewFrame", "ForegroundStaging" };
+            "XamlExplorerHostIslandWindow", "TopLevelWindowForOverflowXamlIsland", "#32768", "MultitaskingViewFrame", "ForegroundStaging", "CabinetWClass",
+            "ScreenClippingWindow", "Xaml_WindowedPopupClass", "ToolTips_class32", "SysShadow" };
         static readonly uint myPid = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
 
-        public static bool Active(IntPtr me)
+        public static bool IsIgnoredOverlayProcess(uint pid)
+        {
+            string p = N.ProcessPath(pid);
+            if (string.IsNullOrEmpty(p)) return false;
+            string fn = System.IO.Path.GetFileNameWithoutExtension(p).ToLowerInvariant();
+            return fn == "screenclippinghost" || fn == "snippingtool" || fn == "lightshot" || fn == "sharex" ||
+                   fn == "flameshot" || fn == "greenshot" || fn == "picpick" || fn == "searchhost" ||
+                   fn == "shellexperiencehost" || fn == "startmenuexperiencehost" || fn == "textinputhost" || fn == "lockapp";
+        }
+
+        public static bool Active(IntPtr me, System.Windows.Forms.Screen targetScreen = null)
         {
             try
             {
                 IntPtr fg = N.GetForegroundWindow();
                 if (fg == IntPtr.Zero || fg == me || N.IsIconic(fg)) return false;
-                if (Array.IndexOf(ShellClasses, N.ClassOf(fg)) >= 0) return false;
+                string cls = N.ClassOf(fg);
+                if (Array.IndexOf(ShellClasses, cls) >= 0) return false;
                 uint pid; N.GetWindowThreadProcessId(fg, out pid);
-                if (pid == myPid) return false;
+                if (pid == myPid || IsIgnoredOverlayProcess(pid)) return false;
                 var scr = System.Windows.Forms.Screen.FromHandle(fg);
-                if (!scr.Primary) return false;
-                int st;
-                if (SHQueryUserNotificationState(out st) == 0 && (st == 3 || st == 4)) return true;   // D3D exclusivo o modo presentacion
-                // Una ventana maximizada no es pantalla completa aunque no tenga barra de titulo clasica
-                // (WhatsApp, Discord, Spotify...): con la barra de Windows oculta cubre toda la pantalla y se confundia con un juego.
-                if (N.IsZoomed(fg)) return false;
-                // "Pantalla completa sin bordes": el area de la ventana (sin titulo) cubre toda la pantalla.
-                // Una ventana maximizada normal no la cubre (deja la barra superior y tiene titulo).
-                N.RECT c; if (!GetClientRect(fg, out c)) return false;
-                var p = new N.POINT(); ClientToScreen(fg, ref p);
+                var want = targetScreen ?? System.Windows.Forms.Screen.PrimaryScreen;
+                if (scr.DeviceName != want.DeviceName) return false;
+
                 var b = scr.Bounds;
-                return p.x <= b.Left && p.y <= b.Top && p.x + (c.right - c.left) >= b.Right && p.y + (c.bottom - c.top) >= b.Bottom;
+                var wa = scr.WorkingArea;
+
+                N.RECT wr;
+                if (!N.GetWindowRect(fg, out wr)) return false;
+                int ww = wr.right - wr.left, wh = wr.bottom - wr.top;
+
+                // Nunca tratar overlays multi-monitor (como herramientas de captura de pantalla que abarcan varios monitores) como juego a pantalla completa
+                if (ww > b.Width + 32 || wh > b.Height + 32 || wr.left < b.Left - 24 || wr.right > b.Right + 24)
+                    return false;
+
+                int st;
+                if (SHQueryUserNotificationState(out st) == 0 && (st == 3 || st == 4) && scr.Primary) return true;   // D3D exclusivo o modo presentacion
+
+                // Una ventana maximizada no es pantalla completa aunque no tenga barra de titulo clasica
+                // (WhatsApp, Discord, Spotify...): con la barra de Windows oculta cubre todo el monitor y se confundia con un juego,
+                // y entonces se escondian el dock, la barra superior y los botones de Mac.
+                if (N.IsZoomed(fg)) return false;
+
+                // 1) "Pantalla completa sin bordes" clasica: el area cliente cubre exactamente este monitor (con tolerancia de 2px de Windows 11).
+                N.RECT c;
+                if (GetClientRect(fg, out c))
+                {
+                    var p = new N.POINT(); ClientToScreen(fg, ref p);
+                    int cw = c.right - c.left, ch = c.bottom - c.top;
+                    if (cw <= b.Width + 16 && ch <= b.Height + 16 &&
+                        p.x >= b.Left - 8 && p.x <= b.Left + 2 && p.y >= b.Top - 8 && p.y <= b.Top + 2 &&
+                        p.x + cw >= b.Right - 2 && p.y + ch >= b.Bottom - 2)
+                        return true;
+                }
+
+                int style = N.GetWindowLong(fg, -16);
+                bool hasCaption = (style & 0x00C00000) == 0x00C00000; // WS_CAPTION
+                // 2) Ventana sin bordes (sin WS_CAPTION, ej. juegos en "Ventana sin bordes" en Windows 11) que ocupa este monitor:
+                if (!hasCaption)
+                {
+                    if (ww >= b.Width - 4 && wh >= b.Height - 4) return true;
+                    if (ww >= wa.Width - 4 && wh >= wa.Height - 4 && !N.IsZoomed(fg)) return true;
+                }
+                // 3) Si SHQueryUserNotificationState reporta QUNS_BUSY (2) y la ventana cubre exactamente este monitor:
+                if (st == 2 && wr.left >= b.Left - 8 && wr.left <= b.Left + 2 && wr.top <= b.Top + 2 && wr.right >= b.Right - 2 && wr.bottom >= b.Bottom - 2)
+                    return true;
+                return false;
             }
             catch { return false; }
         }

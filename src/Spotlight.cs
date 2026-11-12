@@ -30,7 +30,7 @@ namespace MacDock
             N.SetForegroundWindow(Current.Handle);
         }
 
-        class Result { public string Title, Sub, Path, Args; public Bitmap Icon; public int Kind; public AppEntry App; }   // Kind: 0 app, 1 archivo, 2 carpeta, 3 calculo, 4 ajuste
+        class Result { public string Title, Sub, Path, Args = null; public Bitmap Icon; public int Kind; public AppEntry App; }   // Kind: 0 app, 1 archivo, 2 carpeta, 3 calculo, 4 ajuste
 
         static readonly string[][] SettingsList = {
             new[] { "Configuración", "ms-settings:" }, new[] { "Wi-Fi", "ms-settings:network-wifi" }, new[] { "Bluetooth", "ms-settings:bluetooth" },
@@ -60,7 +60,7 @@ namespace MacDock
             selBg = Color.FromArgb(10, 122, 255);
             FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true; KeyPreview = true;
             StartPosition = FormStartPosition.Manual; DoubleBuffered = true; BackColor = bg;
-            var b = Screen.PrimaryScreen.Bounds;
+            var b = Screen.FromPoint(Cursor.Position).Bounds;
             int w = (int)(680 * s);
             Bounds = new Rectangle(b.Left + (b.Width - w) / 2, b.Top + (int)(b.Height * 0.22), w, BoxH);
 
@@ -331,6 +331,7 @@ namespace MacDock
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             debounce.Stop();
+            foreach (var r in results) if (r.Icon != null && r.Kind != 0) { try { r.Icon.Dispose(); } catch { } r.Icon = null; } // los iconos de apps los guarda AppIndex
             base.OnFormClosed(e);
         }
     }

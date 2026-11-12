@@ -16,11 +16,13 @@ namespace MacDock
     // Selector de apps estilo Cmd + Tab (con Alt + Tab): un icono por app, no por ventana, de la mas reciente a la mas antigua.
     // Mientras mantienes Alt:  Tab / Shift+Tab o flechas = moverse,  Q = cerrar la app,  H = minimizarla,  Esc = cancelar.
     // Al soltar Alt se abre la app elegida con todas sus ventanas al frente.
-    // El teclado lo maneja el gancho de teclado del dock (Dock.cs); esta ventana nunca se activa ni roba el foco.
+    // El teclado llega como atajos registrados del dock (RegisterHotKey en Dock.cs, sin ganchos de teclado);
+    // soltar Alt se detecta aqui mirando la tecla cada pocos milisegundos. Esta ventana nunca se activa ni roba el foco.
     class AppSwitcher : Form
     {
-        // Lo lee el gancho de teclado (otro hilo) para saber si debe capturar Esc, Q, H, flechas y el soltar Alt.
+        // Abierto: el dock registra las teclas de "dentro" (Esc, Q, H, flechas, Enter) mientras dure.
         public static volatile bool IsOpen;
+        public static Action SwitcherClosed;   // el dock suelta esas teclas
         static AppSwitcher cur;
 
         class AppGroup { public string Key, Name, IconPath; public List<IntPtr> Windows = new List<IntPtr>(); }
@@ -49,7 +51,7 @@ namespace MacDock
         readonly int iconPx;
         Rectangle area;
         readonly System.Windows.Forms.Timer showTimer = new System.Windows.Forms.Timer { Interval = 110 };
-        readonly System.Windows.Forms.Timer altWatch = new System.Windows.Forms.Timer { Interval = 80 };
+        readonly System.Windows.Forms.Timer altWatch = new System.Windows.Forms.Timer { Interval = 25 };
         bool shown;
 
         // ===================== entrada desde el gancho de teclado (siempre en el hilo del dock) =====================
@@ -77,7 +79,7 @@ namespace MacDock
 
         public static void Commit()
         {
-            var c = cur; cur = null; IsOpen = false;
+            var c = cur; cur = null; IsOpen = false; if (SwitcherClosed != null) SwitcherClosed();
             if (c == null || c.IsDisposed) return;
             var g = c.apps.Count > 0 ? c.apps[c.sel] : null;
             c.Shutdown();
@@ -86,7 +88,7 @@ namespace MacDock
 
         public static void Cancel()
         {
-            var c = cur; cur = null; IsOpen = false;
+            var c = cur; cur = null; IsOpen = false; if (SwitcherClosed != null) SwitcherClosed();
             if (c != null && !c.IsDisposed) c.Shutdown();
         }
 
@@ -123,7 +125,7 @@ namespace MacDock
             LayoutArea(scr);
             Bounds = area;
             showTimer.Tick += (o, e) => { showTimer.Stop(); if (IsDisposed || cur != this) return; shown = true; Render(); N.ShowWindow(Handle, 4); };
-            // seguro: si por cualquier razon se solto Alt sin que el gancho lo viera, se confirma igual
+            // soltar Alt = abrir la app elegida
             altWatch.Tick += (o, e) => { if ((GetAsyncKeyState(0x12) & 0x8000) == 0 && cur == this) Commit(); };
             LoadIconsAsync();
         }

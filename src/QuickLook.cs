@@ -69,7 +69,7 @@ namespace MacDock
             BackColor = bg; ForeColor = fg;
             KeyPreview = true; TopMost = true; ShowInTaskbar = false; FormBorderStyle = FormBorderStyle.None; Padding = new Padding(2);
             StartPosition = FormStartPosition.Manual;
-            var wa = Screen.PrimaryScreen.WorkingArea;
+            var wa = Screen.FromPoint(Cursor.Position).WorkingArea;
             int w = (int)(wa.Width * 0.62), h = (int)(wa.Height * 0.78);
             Bounds = new Rectangle(wa.Left + (wa.Width - w) / 2, wa.Top + (wa.Height - h) / 2, w, h);
             Font = new Font(UiFont.Reg, 9.75f);
