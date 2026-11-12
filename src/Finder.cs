@@ -69,7 +69,7 @@ namespace MacDock
             Text = "Finder"; BackColor = side; ForeColor = fg; Font = fUi; KeyPreview = true; FormBorderStyle = FormBorderStyle.None; Padding = new Padding(3);
             Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             StartPosition = FormStartPosition.Manual;
-            var wa = Screen.PrimaryScreen.WorkingArea;
+            var wa = Screen.FromPoint(Cursor.Position).WorkingArea;
             int w = Math.Min(wa.Width - 80, (int)(1060 * s)), h = Math.Min(wa.Height - 80, (int)(660 * s));
             Bounds = new Rectangle(wa.Left + (wa.Width - w) / 2, wa.Top + (wa.Height - h) / 2, w, h);
             MinimumSize = new Size((int)(560 * s), (int)(360 * s));
@@ -236,7 +236,7 @@ namespace MacDock
             string n = Path.GetFileName(p.TrimEnd('\\'));
             if (string.IsNullOrEmpty(n)) n = p;
             if (string.Equals(p, Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), StringComparison.OrdinalIgnoreCase)) return "Escritorio";
-            if (string.Equals(p, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"), StringComparison.OrdinalIgnoreCase)) return "Descargas";
+            if (string.Equals(p, N.Downloads(), StringComparison.OrdinalIgnoreCase)) return "Descargas";
             return n;
         }
 
@@ -585,7 +585,7 @@ namespace MacDock
             var favs = new List<KeyValuePair<string, string>> {
                 new KeyValuePair<string, string>("Inicio (" + Environment.UserName + ")", home),
                 new KeyValuePair<string, string>("Escritorio", Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)),
-                new KeyValuePair<string, string>("Descargas", Path.Combine(home, "Downloads")),
+                new KeyValuePair<string, string>("Descargas", N.Downloads()),
                 new KeyValuePair<string, string>("Documentos", Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)),
                 new KeyValuePair<string, string>("Imágenes", Environment.GetFolderPath(Environment.SpecialFolder.MyPictures)),
                 new KeyValuePair<string, string>("Videos", Environment.GetFolderPath(Environment.SpecialFolder.MyVideos)),
@@ -633,7 +633,7 @@ namespace MacDock
             if (p.StartsWith("shell:")) return "\uE74D";                                   // papelera
             if (string.Equals(p.TrimEnd('\\'), home, StringComparison.OrdinalIgnoreCase)) return "\uE80F";   // inicio
             if (eq(Environment.SpecialFolder.DesktopDirectory)) return "\uE7F4";            // escritorio
-            if (string.Equals(p.TrimEnd('\\'), Path.Combine(home, "Downloads"), StringComparison.OrdinalIgnoreCase)) return "\uE896";   // descargas
+            if (string.Equals(p.TrimEnd('\\'), N.Downloads().TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) return "\uE896";   // descargas
             if (eq(Environment.SpecialFolder.MyDocuments)) return "\uE8A5";                 // documentos
             if (eq(Environment.SpecialFolder.MyPictures)) return "\uEB9F";                  // imagenes
             if (eq(Environment.SpecialFolder.MyVideos)) return "\uE714";                    // videos
@@ -789,6 +789,7 @@ namespace MacDock
         {
             loadSeq++;
             try { if (watcher != null) watcher.Dispose(); if (watchTimer != null) watchTimer.Dispose(); } catch { }
+            try { if (fUi != null) fUi.Dispose(); if (fUiSemi != null) fUiSemi.Dispose(); if (fSmall != null) fSmall.Dispose(); } catch { }
             bigImgs.Dispose(); smallImgs.Dispose();
             base.OnFormClosed(e);
         }
