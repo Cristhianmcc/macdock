@@ -193,7 +193,7 @@ namespace MacDock
                 using (var k = Registry.CurrentUser.CreateSubKey(UninstKey))
                 {
                     k.SetValue("DisplayName", "MacDock (dock estilo Mac)");
-                    k.SetValue("DisplayVersion", "3.8");
+                    k.SetValue("DisplayVersion", "3.9");
                     k.SetValue("Publisher", "MacDock");
                     k.SetValue("DisplayIcon", Exe);
                     k.SetValue("InstallLocation", Dir);
@@ -202,6 +202,11 @@ namespace MacDock
                     k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
                     k.SetValue("EstimatedSize", 120, RegistryValueKind.DWord);
                 }
+
+                // Asegurar que la barra superior (MenuBar), las vistas previas y el soporte multi-monitor esten activos
+                var cfg = new Config(Path.Combine(Dir, "config.ini"));
+                cfg.MenuBar = true;
+                cfg.Save();
 
                 // 4) fuente Inter + menu de ajustes (bateria, apariencia, privacidad) + accesos directos en el menu Inicio
                 InstallFonts();

@@ -4,6 +4,7 @@
 #            descargas\MacDock-Instalador.zip
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $src = Join-Path $root "src"
 $build = Join-Path $root "build"
@@ -20,11 +21,12 @@ $res = @(
     "/resource:$src\fonts\Inter-SemiBold.ttf,Inter-SemiBold.ttf",
     "/resource:$src\fonts\OFL.txt,OFL.txt")
 $out = Join-Path $build "MacDock.exe"
-$args2 = @("/nologo", "/target:winexe", "/platform:x64", "/optimize+", "/win32icon:$src\dock.ico") + $res +
+$args2 = @("/nologo", "/target:winexe", "/platform:x64", "/optimize+", "/win32icon:$src\dock.ico", "/win32manifest:$src\app.manifest") + $res +
          @("/out:$out", "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll", "/r:System.Data.dll", "/r:System.Core.dll", "/r:Microsoft.CSharp.dll") + $cs
 & $csc @args2
 if ($LASTEXITCODE -ne 0) { throw "La compilacion fallo." }
 
+Copy-Item $out (Join-Path $dist "MacDock.exe") -Force
 Copy-Item $out (Join-Path $dist "Instalar MacDock.exe") -Force
 Copy-Item $out (Join-Path $dist "Desinstalar MacDock.exe") -Force
 Copy-Item (Join-Path $src "LEEME.txt") $dist -Force

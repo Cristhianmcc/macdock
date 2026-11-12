@@ -182,19 +182,39 @@ namespace MacDock
         {
             var list = entries.Select(x => x.Path).ToList();
             int px = (int)Math.Ceiling(IconSz) <= 64 ? 64 : 96;
+            lock (IconLock)
+            {
+                if (Icons.Count > 900)
+                {
+                    foreach (var old in Icons.Values) if (old != null) try { old.Dispose(); } catch { }
+                    Icons.Clear();
+                }
+            }
             loader = new Thread(() =>
             {
+                int loaded = 0;
                 foreach (var p in list)
                 {
                     if (closing) return;
                     string key = p + "|" + SafeTime(p);
-                    lock (IconLock) { if (Icons.ContainsKey(key)) continue; }
+                    lock (IconLock)
+                    {
+                        Bitmap existing;
+                        if (Icons.TryGetValue(key, out existing) && existing != null) continue;
+                    }
                     string ext = Path.GetExtension(p).ToLowerInvariant();
                     bool thumb = ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".webp" || ext == ".gif" || ext == ".bmp" || ext == ".mp4" || ext == ".mov";
                     var bmp = Shell.GetIcon(p, px, thumb ? 0 : 4);
-                    lock (IconLock) { Icons[key] = bmp; }
-                    if (!closing) try { BeginInvoke(new Action(Invalidate)); } catch { }
+                    if (bmp == null) continue;
+                    lock (IconLock)
+                    {
+                        Icons[key] = bmp;
+                    }
+                    loaded++;
+                    if (!closing && (loaded <= 18 || loaded % 6 == 0))
+                        try { BeginInvoke(new Action(Invalidate)); } catch { }
                 }
+                if (!closing) try { BeginInvoke(new Action(Invalidate)); } catch { }
             });
             loader.IsBackground = true;
             loader.SetApartmentState(ApartmentState.STA);
@@ -437,13 +457,24 @@ namespace MacDock
                     if (i == hover) using (var p = Round(RectangleF.Inflate(e.Rect, -3 * s, -3 * s), 8 * s)) g.FillPath(hovB, p);
                     var ir = new RectangleF(e.Rect.X + (e.Rect.Width - IconSz) / 2, e.Rect.Y + 8 * s, IconSz, IconSz);
                     Bitmap ic; lock (IconLock) { Icons.TryGetValue(e.Path + "|" + SafeTime(e.Path), out ic); }
-                    if (ic != null)
+                    if (ic == null)
+                    {
+                        // Mientras termina de cargar la miniatura real, mostrar icono vectorial Mac (carpeta azul o documento) en vez de cuadro gris
+                        ic = Shell.DrawMacFallbackIcon(e.Path, (int)Math.Ceiling(IconSz));
+                        if (ic != null)
+                        {
+                            float k = Math.Min(IconSz / ic.Width, IconSz / ic.Height);
+                            float w = ic.Width * k, h = ic.Height * k;
+                            g.DrawImage(ic, ir.X + (IconSz - w) / 2, ir.Y + (IconSz - h), w, h);
+                            ic.Dispose();
+                        }
+                    }
+                    else
                     {
                         float k = Math.Min(IconSz / ic.Width, IconSz / ic.Height);
                         float w = ic.Width * k, h = ic.Height * k;
                         g.DrawImage(ic, ir.X + (IconSz - w) / 2, ir.Y + (IconSz - h), w, h);
                     }
-                    else using (var p = Round(RectangleF.Inflate(ir, -6 * s, -6 * s), 6 * s)) g.FillPath(hovB, p);
                     g.DrawString(e.Name, nf, fgB, new RectangleF(e.Rect.X + 4 * s, ir.Bottom + 5 * s, e.Rect.Width - 8 * s, nf.Height * 2.1f), nameFmt);
                 }
             }
