@@ -390,33 +390,34 @@ namespace MacDock
             p.CloseFigure(); return p;
         }
 
+        [DllImport("gdi32.dll")] static extern int GetDIBits(IntPtr hdc, IntPtr hbm, uint start, uint lines, byte[] bits, ref N.BITMAPINFOHEADER bmi, uint usage);
+
+        // Convierte el HBITMAP del Shell conservando la transparencia.
+        // Antes se leian los pixeles a mano segun el signo de biHeight, pero en las miniaturas de fotos Windows a veces
+        // reporta ese signo al reves y las fotos salian de cabeza. Ahora se le pide a Windows (GetDIBits) la imagen
+        // ya ordenada de arriba hacia abajo (biHeight negativo), sin adivinar.
         static Bitmap FromHBitmap(IntPtr hb)
         {
             N.DIBSECTION ds;
-            if (N.GetObject(hb, Marshal.SizeOf(typeof(N.DIBSECTION)), out ds) == 0 || ds.dsBm.bmBits == IntPtr.Zero || ds.dsBm.bmBitsPixel != 32)
+            if (N.GetObject(hb, Marshal.SizeOf(typeof(N.DIBSECTION)), out ds) == 0 || ds.dsBm.bmBitsPixel != 32)
                 return Image.FromHbitmap(hb);
             int w = ds.dsBm.bmWidth, h = Math.Abs(ds.dsBm.bmHeight);
-            bool bottomUp = ds.dsBmih.biHeight > 0;
+            if (w <= 0 || h <= 0) return Image.FromHbitmap(hb);
+            var bits = new byte[w * h * 4];
+            var bi = new N.BITMAPINFOHEADER { biSize = (uint)Marshal.SizeOf(typeof(N.BITMAPINFOHEADER)), biWidth = w, biHeight = -h, biPlanes = 1, biBitCount = 32, biCompression = 0 };
+            IntPtr dc = N.GetDC(IntPtr.Zero);
+            int got;
+            try { got = GetDIBits(dc, hb, 0, (uint)h, bits, ref bi, 0); }
+            finally { N.ReleaseDC(IntPtr.Zero, dc); }
+            if (got != h) return Image.FromHbitmap(hb);
+
+            bool anyAlpha = false;
+            for (int i = 3; i < bits.Length; i += 4) if (bits[i] != 0) { anyAlpha = true; break; }
+            if (!anyAlpha) for (int i = 3; i < bits.Length; i += 4) bits[i] = 255;   // fotos sin canal de transparencia: opacas
+
             var bmp = new Bitmap(w, h, PixelFormat.Format32bppPArgb);
             var bd = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
-            var row = new byte[w * 4]; bool anyAlpha = false;
-            for (int y = 0; y < h; y++)
-            {
-                IntPtr src = new IntPtr(ds.dsBm.bmBits.ToInt64() + (long)(bottomUp ? (h - 1 - y) : y) * ds.dsBm.bmWidthBytes);
-                Marshal.Copy(src, row, 0, row.Length);
-                if (!anyAlpha) for (int i = 3; i < row.Length; i += 4) if (row[i] != 0) { anyAlpha = true; break; }
-                Marshal.Copy(row, 0, new IntPtr(bd.Scan0.ToInt64() + (long)y * bd.Stride), row.Length);
-            }
-            if (!anyAlpha)
-            {
-                for (int y = 0; y < h; y++)
-                {
-                    IntPtr dst = new IntPtr(bd.Scan0.ToInt64() + (long)y * bd.Stride);
-                    Marshal.Copy(dst, row, 0, row.Length);
-                    for (int i = 3; i < row.Length; i += 4) row[i] = 255;
-                    Marshal.Copy(row, 0, dst, row.Length);
-                }
-            }
+            for (int y = 0; y < h; y++) Marshal.Copy(bits, y * w * 4, new IntPtr(bd.Scan0.ToInt64() + (long)y * bd.Stride), w * 4);
             bmp.UnlockBits(bd);
             return bmp;
         }
