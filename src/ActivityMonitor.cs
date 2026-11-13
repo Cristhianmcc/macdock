@@ -347,7 +347,7 @@ namespace MacDock
                 if (snap == null) { Txt(g, "Leyendo memoria...", f, Dim, pad, 80 * s); return; }
 
                 // ---------- tarjeta de resumen ----------
-                float cy = pad + 36 * s, ch = 150 * s;
+                float cy = pad + 36 * s, ch = 168 * s;
                 var card = new RectangleF(pad, cy, W - pad * 2, ch);
                 using (var p = Round(card, 12 * s)) { using (var b = new SolidBrush(Card)) g.FillPath(b, p); using (var pen = new Pen(Line)) g.DrawPath(pen, p); }
 
@@ -371,7 +371,7 @@ namespace MacDock
                 // leyenda
                 float ly = bar.Bottom + 12 * s, lx = bar.X;
                 lx = Legend(g, fs, CApps, "Tus apps", MemReader.Size(snap.AppsMem), lx, ly);
-                lx = Legend(g, fs, CSys, "Windows", MemReader.Size(sys), lx, ly);
+                lx = Legend(g, fs, CSys, "Windows y caché", MemReader.Size(sys), lx, ly);
                 lx = Legend(g, fs, CComp, "Comprimida", MemReader.Size(snap.Compressed), lx, ly);
                 Legend(g, fs, light ? Color.FromArgb(205, 205, 210) : Color.FromArgb(80, 80, 88), "Libre", MemReader.Size(snap.Available), lx, ly);
                 // frase sencilla
@@ -379,10 +379,13 @@ namespace MacDock
                                : frac < 0.88f ? "Va justa: cerrar alguna app que no uses ayudaría."
                                : "Muy llena: Windows está usando el disco como memoria y todo se siente lento.";
                 var top = snap.Apps.FirstOrDefault(a => !a.IsSystem);
+                // "Windows y cache" de arriba incluye lo que Windows guarda en memoria para abrir todo mas rapido (y suelta cuando hace falta);
+                // en la lista, "Windows (sistema y servicios)" son solo sus programas.
                 string tip = top == null ? "" : top.Name + " es la que más usa (" + MemReader.Size(top.Mem) + (top.Procs.Count > 1 ? ", en " + top.Procs.Count + " procesos" : "") + ")." + (IsBrowser(top) ? " Cada pestaña abierta suma." : "");
                 using (var b = new SolidBrush(Level(frac))) g.FillEllipse(b, bar.X, ly + 30 * s, 9 * s, 9 * s);
                 Txt(g, verdict, f, Fg, bar.X + 15 * s, ly + 25 * s);
                 Txt(g, tip, fs, Dim, bar.X + 15 * s, ly + 45 * s, bar.Width + 60 * s);
+                Txt(g, "\"Windows y caché\" incluye lo que Windows guarda para ir más rápido; lo suelta solo si una app lo necesita.", fs, Dim, bar.X + 15 * s, ly + 63 * s, bar.Width + 60 * s);
 
                 // grafica de presion de memoria
                 var gr = new RectangleF(card.X + card.Width * 0.62f, card.Y + pad + 18 * s, card.Width * 0.38f - pad, ch - pad * 2 - 18 * s);

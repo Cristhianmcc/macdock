@@ -50,6 +50,7 @@ Incluye además un **menú de ajustes** (un script de PowerShell) que cambia la 
 - Menú del sistema (Inicio, Configuración, Suspender, Reiniciar, Apagar, Bloquear).
 - Nombre de la **app activa** (minimizar, maximizar, cerrar).
 - La **batería muestra un rayo** al conectar el cargador, al instante.
+- **⌃ Apps en segundo plano**: panel con el estilo del Centro de Control con las apps de la bandeja que están corriendo (clic = abrir; clic derecho = abrir, forzar cierre o el menú propio de la app).
 - **⌃ iconos de la bandeja** (antivirus, VPN, Drive…), **luna/sol** para modo oscuro/claro, Wi-Fi, volumen, batería y fecha/hora.
 
 ### 🗂️ Finder

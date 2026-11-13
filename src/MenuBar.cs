@@ -368,7 +368,12 @@ namespace MacDock
             try
             {
                 if (rTheme.Contains(e.Location)) { if (ToggleTheme != null) ToggleTheme(); }
-                else if (rTray.Contains(e.Location)) { if (ShowTray != null) ShowTray(); }
+                else if (rTray.Contains(e.Location))
+                {
+                    // panel propio estilo Centro de Control; el de Windows queda como "Menu de las apps"
+                    var trayAnchor = new Point(X + (int)(rTray.X + rTray.Width / 2), Y + H + (int)(6 * s));
+                    TrayPanel.Toggle(s, light, trayAnchor, targetScreen.Bounds, ShowTray);
+                }
                 else if (rLogo.Contains(e.Location)) SystemMenu();
                 else if (rApp.Contains(e.Location)) AppMenu();
                 else if (!rWinMenu.IsEmpty && rWinMenu.Contains(e.Location)) WindowTilingMenu(rWinMenu);
