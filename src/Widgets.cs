@@ -226,6 +226,9 @@ namespace MacDock
         protected abstract string StateKey();                         // si no cambia, no se redibuja
         protected abstract void DrawContent(Graphics g, RectangleF r);
         protected virtual void OnClickCard() { }
+        // clic con la posicion dentro de la tarjeta (0,0 = esquina de la tarjeta); por defecto, clic normal
+        protected virtual void OnClickAt(PointF p) { OnClickCard(); }
+        bool embedded;   // dibujado dentro del Centro de Notificaciones: no tiene ventana propia
 
         public Size CardSize { get { int sm = (int)(SmallPx * s); return new Size(Wide ? sm * 2 + (int)(GapPx * s) : sm, sm); } }
         int ShadowM { get { return (int)Math.Ceiling(14 * s); } }   // espacio para la sombra
@@ -256,10 +259,11 @@ namespace MacDock
                 default: return null;
             }
             w.Init(kind, scale, lightTheme);
+            w.embedded = true;
             return w;
         }
         public string Update() { return StateKey(); }   // lee los datos (y dice si cambiaron)
-        public void Click() { OnClickCard(); }
+        public void Click(PointF inCard) { OnClickAt(inCard); }
         public void PaintInto(Graphics g, RectangleF r, Color card, Color border)
         {
             using (var p = Round(r, 18 * s))
@@ -300,7 +304,7 @@ namespace MacDock
 
         protected void Redraw(bool force)
         {
-            if (IsDisposed || !IsHandleCreated && !force) return;
+            if (IsDisposed || embedded || !IsHandleCreated && !force) return;
             string key = StateKey() + "|" + light + "|" + Pos;
             if (!force && key == lastKey) return;
             lastKey = key;
@@ -378,7 +382,7 @@ namespace MacDock
                 Redraw(true);
                 Widgets.Moved(this);
             }
-            else OnClickCard();
+            else OnClickAt(new PointF(e.X - ShadowM, e.Y - ShadowM));
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e) { timer.Stop(); timer.Dispose(); base.OnFormClosed(e); }
@@ -470,7 +474,26 @@ namespace MacDock
 
         protected override bool Wide { get { return true; } }
         protected override int RefreshMs { get { return 60000; } }
-        protected override string StateKey() { return DateTime.Today.ToString("yyyyMMdd"); }
+        int offset;                              // meses hacia adelante (+) o atras (-) desde el actual
+        DateTime offsetAt = DateTime.MinValue;   // pasado un rato sin tocarlo, regresa solo al mes de hoy
+        RectangleF rPrev, rNext, rTitle;         // relativos a la esquina de la tarjeta
+
+        protected override string StateKey()
+        {
+            if (offset != 0 && (DateTime.Now - offsetAt).TotalMinutes > 3) offset = 0;
+            return DateTime.Today.ToString("yyyyMMdd") + "|" + offset;
+        }
+
+        // ‹ y › cambian de mes; clic en el nombre del mes regresa a hoy
+        protected override void OnClickAt(PointF p)
+        {
+            if (rPrev.Contains(p)) offset--;
+            else if (rNext.Contains(p)) offset++;
+            else if (rTitle.Contains(p)) offset = 0;
+            else return;
+            offsetAt = DateTime.Now;
+            Redraw(true);
+        }
 
         protected override void DrawContent(Graphics g, RectangleF r)
         {
@@ -483,27 +506,42 @@ namespace MacDock
             using (var f = F(13f, true)) Txt(g, Cap(Months[today.Month - 1]), f, Fg, new RectangleF(left.X, left.Bottom - 34 * s, left.Width, 18 * s));
             using (var f = F(12f)) Txt(g, today.Year.ToString(), f, Dim, new RectangleF(left.X, left.Bottom - 17 * s, left.Width, 18 * s));
 
-            // derecha: la cuadricula del mes
+            // derecha: "‹  Diciembre 2026  ›" y la cuadricula de ese mes
             int first = (int)CultureInfo.CurrentCulture.DateTimeFormat.FirstDayOfWeek;
-            var right = new RectangleF(r.X + r.Width * 0.42f, r.Y + pad - 2 * s, r.Width * 0.58f - pad, r.Height - pad * 2 + 4 * s);
-            var month1 = new DateTime(today.Year, today.Month, 1);
+            var right = new RectangleF(r.X + r.Width * 0.42f, r.Y + pad - 6 * s, r.Width * 0.58f - pad + 4 * s, r.Height - pad * 2 + 10 * s);
+            var month1 = new DateTime(today.Year, today.Month, 1).AddMonths(offset);
             int lead = ((int)month1.DayOfWeek - first + 7) % 7;
-            int daysIn = DateTime.DaysInMonth(today.Year, today.Month);
+            int daysIn = DateTime.DaysInMonth(month1.Year, month1.Month);
             int rowsNeeded = (lead + daysIn + 6) / 7;
-            float cw = right.Width / 7f, ch = right.Height / (rowsNeeded + 1);
-            using (var fh = F(10.5f, true))
+            float cw = right.Width / 7f, ch = right.Height / (rowsNeeded + 2);
+
+            var head = new RectangleF(right.X, right.Y, right.Width, ch);
+            rPrev = new RectangleF(head.X - r.X, head.Y - r.Y - 2 * s, cw * 1.2f, ch + 4 * s);
+            rNext = new RectangleF(head.Right - cw * 1.2f - r.X, head.Y - r.Y - 2 * s, cw * 1.2f, ch + 4 * s);
+            rTitle = new RectangleF(head.X + cw * 1.2f - r.X, head.Y - r.Y, head.Width - cw * 2.4f, ch);
+            using (var fa = F(14f, true))
+            {
+                Txt(g, "\u2039", fa, Fg, new RectangleF(head.X, head.Y - 2 * s, cw * 1.2f, ch + 2 * s), StringAlignment.Center, StringAlignment.Center);
+                Txt(g, "\u203A", fa, Fg, new RectangleF(head.Right - cw * 1.2f, head.Y - 2 * s, cw * 1.2f, ch + 2 * s), StringAlignment.Center, StringAlignment.Center);
+            }
+            using (var fm = F(11f, true))
+                Txt(g, Cap(Months[month1.Month - 1]) + (month1.Year != today.Year ? " " + month1.Year : ""), fm, offset == 0 ? Fg : Red,
+                    new RectangleF(head.X + cw * 1.2f, head.Y, head.Width - cw * 2.4f, ch), StringAlignment.Center, StringAlignment.Center);
+
+            using (var fh = F(10f, true))
                 for (int i = 0; i < 7; i++)
                 {
                     int dow = (first + i) % 7;
-                    Txt(g, Ini[dow], fh, dow == 0 || dow == 6 ? Dim : Fg, new RectangleF(right.X + i * cw, right.Y, cw, ch), StringAlignment.Center, StringAlignment.Center);
+                    Txt(g, Ini[dow], fh, dow == 0 || dow == 6 ? Dim : Fg, new RectangleF(right.X + i * cw, right.Y + ch, cw, ch), StringAlignment.Center, StringAlignment.Center);
                 }
-            using (var fd = F(11f))
-            using (var ft = F(11f, true))
+            bool thisMonth = month1.Year == today.Year && month1.Month == today.Month;
+            using (var fd = F(rowsNeeded > 5 ? 10f : 11f))
+            using (var ft = F(rowsNeeded > 5 ? 10f : 11f, true))
                 for (int d = 1; d <= daysIn; d++)
                 {
                     int cell = lead + d - 1;
-                    var cr = new RectangleF(right.X + (cell % 7) * cw, right.Y + (cell / 7 + 1) * ch, cw, ch);
-                    bool isToday = d == today.Day;
+                    var cr = new RectangleF(right.X + (cell % 7) * cw, right.Y + (cell / 7 + 2) * ch, cw, ch);
+                    bool isToday = thisMonth && d == today.Day;
                     if (isToday)
                     {
                         float dd = Math.Min(cw, ch) * 0.92f;

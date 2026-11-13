@@ -170,7 +170,7 @@ namespace MacDock
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            bool hand = rNotifBtn.Contains(e.Location) || rDnd.Contains(e.Location) || widgets.Any(kv => kv.Value.Contains(e.Location) && (kv.Key is SystemWidget || kv.Key is NotesWidget));
+            bool hand = rNotifBtn.Contains(e.Location) || rDnd.Contains(e.Location) || widgets.Any(kv => kv.Value.Contains(e.Location) && (kv.Key is SystemWidget || kv.Key is NotesWidget || kv.Key is CalendarWidget));
             Cursor = hand ? Cursors.Hand : Cursors.Default;
         }
 
@@ -193,7 +193,8 @@ namespace MacDock
                         var p = PointToScreen(Point.Round(kv.Value.Location));
                         kv.Key.Pos = new Point(p.X - (int)(kv.Value.Width + 330 * s), p.Y);   // la ventanita de Notas sale a la izquierda del panel
                         if (kv.Key is SystemWidget || kv.Key is NotesWidget) SlideOut();
-                        kv.Key.Click();
+                        kv.Key.Click(new PointF(e.X - kv.Value.X, e.Y - kv.Value.Y));
+                        Invalidate();   // el calendario pudo cambiar de mes
                         return;
                     }
             }

@@ -44,10 +44,20 @@ namespace MacDock
         readonly List<KeyValuePair<RectangleF, TrayApp>> trayHits = new List<KeyValuePair<RectangleF, TrayApp>>();
         RectangleF rTrayMore; List<TrayApp> trayOverflow = new List<TrayApp>();
         const int TrayMaxShown = 6;
+        public bool TrayIcons = true;      // opcion del dock: apps en segundo plano en la barra (si no, el boton ^ de Windows)
+        public bool NotifCenterOn = true;  // opcion del dock: clic en la fecha abre el Centro de Notificaciones (si no, el de Windows)
+
+        public void SetOptions(bool trayIcons, bool notifCenter)
+        {
+            TrayIcons = trayIcons; NotifCenterOn = notifCenter;
+            if (TrayIcons) RefreshTrayAsync();
+            Redraw(true);
+            foreach (var sb in secondaryBars) sb.SetOptions(trayIcons, notifCenter);
+        }
 
         void RefreshTrayAsync()
         {
-            if (trayLoading || trayUnsupported) return;
+            if (trayLoading || trayUnsupported || !TrayIcons) return;
             trayLoading = true;
             int px = (int)Math.Round(16 * s);
             var th = new System.Threading.Thread(() =>
@@ -143,6 +153,7 @@ namespace MacDock
                 var sb = new MenuBar(sc, light, scr, true, false);
                 sb.ToggleTheme = ToggleTheme;
                 sb.ShowTray = ShowTray;
+                sb.TrayIcons = TrayIcons; sb.NotifCenterOn = NotifCenterOn;
                 sb.Show();
                 secondaryBars.Add(sb);
             }
@@ -266,7 +277,7 @@ namespace MacDock
             SystemStats.GetNetworkInfo(out net, out isEth, out netLbl);
             bool isDesk = DeviceProfile.IsDesktop;
             string clock = ClockText();
-            string key = appName + "|" + title + "|" + clock + "|" + (isDesk ? -1 : (int)(bat.Pct * 100)) + bat.Plugged + bat.Charging + "|" + net + "|" + isEth + "|" + light + "|" + traySig + trayUnsupported;
+            string key = appName + "|" + title + "|" + clock + "|" + (isDesk ? -1 : (int)(bat.Pct * 100)) + bat.Plugged + bat.Charging + "|" + net + "|" + isEth + "|" + light + "|" + traySig + trayUnsupported + TrayIcons;
             if (!force && key == lastKey) return;
             lastKey = key;
 
@@ -364,7 +375,7 @@ namespace MacDock
 
                         // apps en segundo plano: sus iconos directo en la barra, como en Mac (de un color si el icono lo permite)
                         trayHits.Clear(); rTray = RectangleF.Empty; rTrayMore = RectangleF.Empty; trayOverflow = new List<TrayApp>();
-                        if (trayUnsupported)
+                        if (trayUnsupported || !TrayIcons)
                         {
                             string tr = "\uE70E";   // Windows 10: el boton ^ abre el panel de Windows
                             var trs = g.MeasureString(tr, fIcon); rx -= trs.Width;
@@ -479,7 +490,10 @@ namespace MacDock
                     var anchor = new Point(X + W - (int)(12 * s), Y + H + (int)(6 * s));
                     ControlCenter.Toggle(s, light, anchor, targetScreen.Bounds, true, ToggleTheme);
                 }
-                else if (rClock.Contains(e.Location)) NotificationCenter.Toggle(s, light, targetScreen.WorkingArea);   // como en Mac: la fecha abre el Centro de Notificaciones
+                else if (rClock.Contains(e.Location))   // como en Mac: la fecha abre el Centro de Notificaciones
+                {
+                    if (NotifCenterOn) NotificationCenter.Toggle(s, light, targetScreen.WorkingArea); else N.PressKeys(0x5B, 0x4E);
+                }
             }
             catch (Exception ex) { Program.Log(ex); }
         }

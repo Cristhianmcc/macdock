@@ -100,6 +100,8 @@ namespace MacDock
         public bool Launchpad = true;       // el icono de Inicio del dock abre Launchpad (Alt + Shift + Espacio)
         public bool AppSwitcher = true;     // Alt + Tab muestra el selector de apps estilo Cmd + Tab
         public bool Widgets = true;         // widgets en el escritorio (cuales y donde: widgets.ini)
+        public bool TrayInBar = true;       // apps en segundo plano como iconos en la barra superior
+        public bool NotifCenter = true;     // clic en la fecha de la barra = Centro de Notificaciones
         public string WallTheme = "";       // fondo elegido en el dock: aurora, universo o neon ("" = el tuyo)
         public bool WindowPreviews = true;
         public bool MultiMonitor = true;
@@ -140,6 +142,8 @@ namespace MacDock
                 else if (k == "launchpad") Launchpad = v == "1";
                 else if (k == "appswitcher") AppSwitcher = v == "1";
                 else if (k == "widgets") Widgets = v == "1";
+                else if (k == "trayinbar") TrayInBar = v == "1";
+                else if (k == "notifcenter") NotifCenter = v == "1";
                 else if (k == "walltheme") WallTheme = v.ToLowerInvariant();
                 else if (k == "windowpreviews") WindowPreviews = v == "1";
                 else if (k == "multimonitor") MultiMonitor = v == "1";
@@ -180,6 +184,8 @@ namespace MacDock
                     "Launchpad=" + (Launchpad ? 1 : 0) + "\r\n" +
                     "AppSwitcher=" + (AppSwitcher ? 1 : 0) + "\r\n" +
                     "Widgets=" + (Widgets ? 1 : 0) + "\r\n" +
+                    "TrayInBar=" + (TrayInBar ? 1 : 0) + "\r\n" +
+                    "NotifCenter=" + (NotifCenter ? 1 : 0) + "\r\n" +
                     "WallTheme=" + WallTheme + "\r\n" +
                     "WindowPreviews=" + (WindowPreviews ? 1 : 0) + "\r\n" +
                     "MultiMonitor=" + (MultiMonitor ? 1 : 0) + "\r\n" +
@@ -832,6 +838,7 @@ namespace MacDock
                 bar = new MenuBar(s, light, Screen.PrimaryScreen, false, cfg.MultiMonitor);
                 bar.ToggleTheme = ToggleTheme;
                 bar.ShowTray = ShowTray;
+                bar.TrayIcons = cfg.TrayInBar; bar.NotifCenterOn = cfg.NotifCenter;
                 bar.Show();
             }
             else if (!on && bar != null)
@@ -1856,6 +1863,16 @@ namespace MacDock
                 wmenu.DropDownItems.Add(reset);
             }
             opts.DropDownItems.Add(wmenu);
+            addOpt("Apps en segundo plano en la barra superior", cfg.TrayInBar, () =>
+            {
+                cfg.TrayInBar = !cfg.TrayInBar; cfg.Save();
+                if (bar != null) bar.SetOptions(cfg.TrayInBar, cfg.NotifCenter);
+            });
+            addOpt("Centro de Notificaciones al dar clic en la fecha", cfg.NotifCenter, () =>
+            {
+                cfg.NotifCenter = !cfg.NotifCenter; cfg.Save();
+                if (bar != null) bar.SetOptions(cfg.TrayInBar, cfg.NotifCenter);
+            });
             addOpt("Alt + Tab estilo Mac (una app por icono)", cfg.AppSwitcher, () =>
             {
                 cfg.AppSwitcher = !cfg.AppSwitcher; cfg.Save();
