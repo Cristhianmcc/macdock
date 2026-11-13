@@ -479,7 +479,7 @@ namespace MacDock
                     var anchor = new Point(X + W - (int)(12 * s), Y + H + (int)(6 * s));
                     ControlCenter.Toggle(s, light, anchor, targetScreen.Bounds, true, ToggleTheme);
                 }
-                else if (rClock.Contains(e.Location)) N.PressKeys(0x5B, 0x4E);
+                else if (rClock.Contains(e.Location)) NotificationCenter.Toggle(s, light, targetScreen.WorkingArea);   // como en Mac: la fecha abre el Centro de Notificaciones
             }
             catch (Exception ex) { Program.Log(ex); }
         }

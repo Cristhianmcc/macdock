@@ -81,6 +81,10 @@ Incluye además un **menú de ajustes** (un script de PowerShell) que cambia la 
 - Clic derecho en un widget para quitarlo o agregar otros. También en Opciones del dock → Widgets en el escritorio.
 - No usan internet y casi no gastan: cada uno se redibuja solo cuando cambia lo que muestra.
 
+### 🔔 Centro de Notificaciones (estilo Big Sur)
+- **Clic en la fecha y hora** de la barra superior: entra un panel desde la derecha con el día de hoy y los widgets (calendario, reloj, batería, sistema y notas).
+- Botón para ver las notificaciones de Windows e interruptor de **No molestar**. Windows no deja que otros programas lean tus notificaciones, por eso no se muestran dentro.
+
 ### 📊 Monitor de Actividad (memoria por app)
 - Ve **qué app usa tu RAM**: los procesos se agrupan por app (Chrome = una fila aunque tenga 40 procesos) y los navegadores internos que usan WhatsApp, Claude o Teams se suman a su app.
 - Resumen arriba: **tus apps, Windows, memoria comprimida y libre**, gráfica de **presión de memoria** y una frase sencilla que dice si va bien o está llena.
@@ -219,6 +223,7 @@ El resultado queda en `dist\` y en `descargas\MacDock-Instalador.zip`.
 | `src/Launchpad.cs` | Launchpad: todas las apps a pantalla completa |
 | `src/AppSwitcher.cs` | El selector de apps estilo Cmd + Tab (Alt + Tab) |
 | `src/Widgets.cs` | Los widgets del escritorio (reloj, calendario, batería, sistema, notas) |
+| `src/NotificationCenter.cs` | Centro de Notificaciones (clic en la fecha) |
 | `src/ActivityMonitor.cs` | El Monitor de Actividad (memoria por app) |
 | `src/Wallpapers.cs` | Los fondos dibujados por código: aurora, universo pixel y ciudad neón |
 | `src/AppIndex.cs` | La lista de apps instaladas que comparten Launchpad y Spotlight |

@@ -242,6 +242,34 @@ namespace MacDock
         public void SetTheme(bool lightTheme) { light = lightTheme; Redraw(true); }
         public void SetPaused(bool p) { if (p) timer.Stop(); else { timer.Start(); Redraw(false); } }
 
+        // Para el Centro de Notificaciones: el mismo widget dibujado dentro de otra ventana (sin la suya propia).
+        public static DesktopWidget Create(string kind, float scale, bool lightTheme)
+        {
+            DesktopWidget w;
+            switch (kind)
+            {
+                case "clock": w = new ClockWidget(); break;
+                case "calendar": w = new CalendarWidget(); break;
+                case "battery": w = new BatteryWidget(); break;
+                case "system": w = new SystemWidget(); break;
+                case "notes": w = new NotesWidget(); break;
+                default: return null;
+            }
+            w.Init(kind, scale, lightTheme);
+            return w;
+        }
+        public string Update() { return StateKey(); }   // lee los datos (y dice si cambiaron)
+        public void Click() { OnClickCard(); }
+        public void PaintInto(Graphics g, RectangleF r, Color card, Color border)
+        {
+            using (var p = Round(r, 18 * s))
+            {
+                using (var b = new SolidBrush(card)) g.FillPath(b, p);
+                using (var pen = new Pen(border)) g.DrawPath(pen, p);
+            }
+            try { DrawContent(g, r); } catch (Exception ex) { Program.Log(ex); }
+        }
+
         protected override bool ShowWithoutActivation { get { return true; } }
         protected override CreateParams CreateParams
         {
@@ -544,7 +572,7 @@ namespace MacDock
 
         protected override string StateKey()
         {
-            Sample();
+            try { Sample(); } catch (Exception ex) { Program.Log(ex); }
             return (int)(cpu * 100) + "|" + (int)(ram * 100);
         }
 
