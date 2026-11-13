@@ -540,6 +540,7 @@ namespace MacDock
         ulong lastIdle, lastTotal; float cpu, ram; double usedGb, totalGb;
 
         protected override int RefreshMs { get { return 2000; } }
+        protected override void OnClickCard() { ActivityMonitor.Open(light, s); }   // clic: ver que app usa la memoria
 
         protected override string StateKey()
         {

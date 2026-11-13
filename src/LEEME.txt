@@ -106,6 +106,8 @@ NUEVO EN 3.9
     Clic derecho en el dock o en el escritorio > Fondos de MacDock. "Volver a mi fondo anterior" regresa el tuyo.
   - Botones de Mac: ya no se pierden en apps maximizadas sin barra clasica (WhatsApp, Discord...) ni en apps
     que aparecen "en dos pasos"; ademas se reparan solos si alguno se queda sin botones.
+  - MONITOR DE ACTIVIDAD: que app usa tu RAM, agrupado por app, con presion de memoria. Menu del dock,
+    Launchpad, Spotlight o clic en el widget de Sistema.
   - Mas ligero: los widgets se pausan con juegos/videos a pantalla completa, Launchpad redibuja menos
     y los iconos guardados se sueltan si no usas Alt+Tab o Spotlight en un rato.
 

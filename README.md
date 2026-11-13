@@ -80,6 +80,12 @@ Incluye además un **menú de ajustes** (un script de PowerShell) que cambia la 
 - Clic derecho en un widget para quitarlo o agregar otros. También en Opciones del dock → Widgets en el escritorio.
 - No usan internet y casi no gastan: cada uno se redibuja solo cuando cambia lo que muestra.
 
+### 📊 Monitor de Actividad (memoria por app)
+- Ve **qué app usa tu RAM**: los procesos se agrupan por app (Chrome = una fila aunque tenga 40 procesos) y los navegadores internos que usan WhatsApp, Claude o Teams se suman a su app.
+- Resumen arriba: **tus apps, Windows, memoria comprimida y libre**, gráfica de **presión de memoria** y una frase sencilla que dice si va bien o está llena.
+- Clic en una app para ver cada proceso; **Cerrar app** o **Forzar cierre** (este pide confirmación).
+- Se abre desde el menú del dock, Launchpad, Spotlight o con clic en el widget de Sistema. Solo trabaja mientras está abierto.
+
 ### 🔍 Spotlight (Alt + Espacio)
 
 <img src="docs/img/spotlight.png" width="640" alt="Spotlight">
@@ -212,6 +218,7 @@ El resultado queda en `dist\` y en `descargas\MacDock-Instalador.zip`.
 | `src/Launchpad.cs` | Launchpad: todas las apps a pantalla completa |
 | `src/AppSwitcher.cs` | El selector de apps estilo Cmd + Tab (Alt + Tab) |
 | `src/Widgets.cs` | Los widgets del escritorio (reloj, calendario, batería, sistema, notas) |
+| `src/ActivityMonitor.cs` | El Monitor de Actividad (memoria por app) |
 | `src/Wallpapers.cs` | Los fondos dibujados por código: aurora, universo pixel y ciudad neón |
 | `src/AppIndex.cs` | La lista de apps instaladas que comparten Launchpad y Spotlight |
 | `src/QuickLook.cs` | La vista rápida (Espacio) |

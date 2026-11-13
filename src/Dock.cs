@@ -40,10 +40,10 @@ namespace MacDock
         [STAThread]
         static void Main(string[] args)
         {
-            if (args.Length > 0 && (args[0] == "--finder" || args[0] == "--spotlight" || args[0] == "--launchpad"))
+            if (args.Length > 0 && (args[0] == "--finder" || args[0] == "--spotlight" || args[0] == "--launchpad" || args[0] == "--monitor"))
             {
                 IntPtr h = N.FindWindow(null, "MacDockWindow");
-                string msg = args[0] == "--finder" ? "MacDockOpenFinder" : args[0] == "--spotlight" ? "MacDockOpenSpotlight" : "MacDockOpenLaunchpad";
+                string msg = args[0] == "--finder" ? "MacDockOpenFinder" : args[0] == "--spotlight" ? "MacDockOpenSpotlight" : args[0] == "--monitor" ? "MacDockOpenMonitor" : "MacDockOpenLaunchpad";
                 if (h != IntPtr.Zero) N.PostMessage(h, N.RegisterWindowMessage(msg), IntPtr.Zero, IntPtr.Zero);
                 else if (args[0] == "--finder") System.Diagnostics.Process.Start("explorer.exe");
                 return;
@@ -285,7 +285,7 @@ namespace MacDock
         [StructLayout(LayoutKind.Sequential)] struct GUITHREADINFO { public int cbSize, flags; public IntPtr hwndActive, hwndFocus, hwndCapture, hwndMenuOwner, hwndMoveSize, hwndCaret; public N.RECT rcCaret; }
         [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info);
 
-        int msgFinder = N.RegisterWindowMessage("MacDockOpenFinder"), msgSpot = N.RegisterWindowMessage("MacDockOpenSpotlight"), msgLaunchpad = N.RegisterWindowMessage("MacDockOpenLaunchpad");
+        int msgFinder = N.RegisterWindowMessage("MacDockOpenFinder"), msgSpot = N.RegisterWindowMessage("MacDockOpenSpotlight"), msgLaunchpad = N.RegisterWindowMessage("MacDockOpenLaunchpad"), msgMonitor = N.RegisterWindowMessage("MacDockOpenMonitor");
         // Atajos (RegisterHotKey, sin ganchos de teclado): 7 Spotlight, 8 Espacio en el Explorador, 20 Launchpad, 30-39 selector de apps
         void SetLaunchpadKey(bool on) { if (on) RegisterHotKey(Handle, 20, 0x0001 | 0x0004 | 0x4000, 0x20); else UnregisterHotKey(Handle, 20); }   // Alt + Shift + Espacio
 
@@ -1889,6 +1889,7 @@ namespace MacDock
             Add(m, "Abrir Finder", () => Finder.OpenOrFocus(light, s));
             Add(m, "Buscar con Spotlight (Alt + Espacio)", () => Spotlight.Toggle(light, s));
             Add(m, "Abrir Launchpad", () => Launchpad.Toggle(s));
+            Add(m, "Monitor de Actividad (memoria por app)", () => ActivityMonitor.Open(light, s));
             m.Items.Add(WallpaperMenu());
             if (DockerRunning()) Add(m, "Apagar Docker y WSL (libera RAM y bateria)", () => StopDocker());
             m.Items.Add(opts);
@@ -2152,6 +2153,7 @@ namespace MacDock
             if (msgFinder != 0 && m.Msg == msgFinder) { Finder.OpenOrFocus(light, s); return; }
             if (msgSpot != 0 && m.Msg == msgSpot) { Spotlight.Toggle(light, s); return; }
             if ((m.Msg == 0x0312 && m.WParam.ToInt32() == 20) || (msgLaunchpad != 0 && m.Msg == msgLaunchpad)) { Launchpad.Toggle(s); return; }
+            if (msgMonitor != 0 && m.Msg == msgMonitor) { ActivityMonitor.Open(light, s); return; }
             if (m.Msg == 0x0312 && m.WParam.ToInt32() >= 30 && m.WParam.ToInt32() <= 39) { OnSwitcherHotKey(m.WParam.ToInt32()); return; }
             if (m.Msg == appBarMsg && appBarMsg != 0)
             {
