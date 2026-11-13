@@ -6,7 +6,7 @@
 
 **Convierte tu Windows 10/11 en algo que se ve y se siente como macOS, sin instalar programas pesados.**
 
-Dock con efecto lupa · Barra superior · Finder · Spotlight · Quick Look · Botones de colores · Más batería
+Dock con efecto lupa · Launchpad · Cmd+Tab · Widgets · Barra superior · Finder · Spotlight · Quick Look · Botones de colores · Más batería
 
 ~**15–20 MB de RAM** en total · ~0 % de CPU en reposo · Sin administrador · 100 % reversible
 
@@ -49,6 +49,8 @@ Incluye además un **menú de ajustes** (un script de PowerShell) que cambia la 
 
 - Menú del sistema (Inicio, Configuración, Suspender, Reiniciar, Apagar, Bloquear).
 - Nombre de la **app activa** (minimizar, maximizar, cerrar).
+- La **batería muestra un rayo** al conectar el cargador, al instante.
+- **Apps en segundo plano en la barra**, como en Mac: los iconos de la bandeja (Claude, Drive, OneDrive…) van directo en la barra superior, de un solo color, con un menú al darles clic (abrir, su menú propio, forzar cierre). Las que no caben quedan en **»**.
 - **⌃ iconos de la bandeja** (antivirus, VPN, Drive…), **luna/sol** para modo oscuro/claro, Wi-Fi, volumen, batería y fecha/hora.
 
 ### 🗂️ Finder
@@ -59,11 +61,47 @@ Incluye además un **menú de ajustes** (un script de PowerShell) que cambia la 
 - Copiar, cortar, pegar, renombrar, papelera, arrastrar y soltar, **Quick Look** y "Abrir terminal aquí".
 - Se actualiza solo cuando cambia la carpeta. Solo usa memoria mientras está abierto.
 
+### 🚀 Launchpad (icono del dock o Alt + Shift + Espacio)
+- **Todas tus apps** en una cuadrícula a pantalla completa sobre tu fondo desenfocado, incluidas las de la Tienda (Calculadora, Configuración, Fotos…).
+- **Páginas** con puntitos abajo: cambia con la rueda del mouse, deslizando en el trackpad, arrastrando o con las flechas.
+- **Escribe para buscar** en cuanto se abre; **Enter** abre la primera app y **Esc** borra la búsqueda o cierra.
+- Clic en un espacio vacío para cerrar, como en Mac. Solo usa memoria mientras está abierto.
+- También está en el menú Inicio como **Launchpad**. Clic derecho en su icono del dock → "Menú Inicio de Windows" si lo necesitas.
+
+### ⌘ Selector de apps estilo Cmd + Tab (Alt + Tab)
+- **Un icono por app**, no por ventana, de la más reciente a la más antigua. Un toque rápido de Alt + Tab te regresa a la app anterior sin mostrar el panel.
+- Mientras mantienes **Alt**: **Tab** / **Shift + Tab** o las flechas para moverte, **Q** cierra la app, **H** la minimiza y **Esc** cancela. También puedes elegir con el mouse.
+- Al soltar Alt, la app elegida pasa al frente **con todas sus ventanas**.
+- **Ctrl + Alt + Tab** sigue abriendo el selector de Windows, y se puede apagar en Opciones del dock.
+
+### 🧩 Widgets en el escritorio
+- **Reloj**, **calendario**, **batería**, **sistema** (procesador y memoria), **notas**, **concentración** y **música**, con aspecto de vidrio, en modo claro u oscuro según Windows.
+- Viven **pegados al escritorio**: detrás de tus ventanas, y siguen ahí con Win + D.
+- **Arrástralos** a donde quieras (se acomodan alineados y recuerdan su lugar). Clic en Notas para escribir.
+- Clic derecho en un widget para quitarlo o agregar otros. También en Opciones del dock → Widgets en el escritorio.
+- No usan internet y casi no gastan: cada uno se redibuja solo cuando cambia lo que muestra.
+
+### 🔔 Centro de Notificaciones (estilo Big Sur)
+- **Clic en la fecha y hora** de la barra superior: entra un panel desde la derecha con el día de hoy y los widgets (calendario, reloj, batería, sistema y notas).
+- **Música**: qué está sonando (Spotify, YouTube Music en el navegador, Apple Music, VLC…) con portada y controles, usando la API oficial de Windows. El Centro de Control usa lo mismo.
+- **Concentración (Pomodoro)**: concentración, descanso y descanso largo, aviso al terminar cada fase y, si quieres, "No molestar" mientras te concentras. Clic en el widget para abrir su ventana: tiempos y rondas a tu gusto, **lista de tareas** (cada concentración terminada le suma un pomodoro a la tarea elegida) y cuántos llevas hoy.
+
+### ⏰ Reloj (como el de macOS Ventura)
+- Clic en el widget del reloj: **Reloj mundial** (ciudades con su hora y si allá ya es mañana), **Alarmas** (una vez, diario o lunes a viernes), **Cronómetro** con vueltas y **Temporizador**.
+- Las alarmas y el temporizador suenan aunque cierres la ventana, mientras MacDock esté abierto.
+- Botón para ver las notificaciones de Windows, **Configurar** (abre los ajustes de notificaciones de Windows, como en Mac) e interruptor de **No molestar**. Windows no deja que otros programas lean tus notificaciones, por eso no se muestran dentro.
+
+### 📊 Monitor de Actividad (memoria por app)
+- Ve **qué app usa tu RAM**: los procesos se agrupan por app (Chrome = una fila aunque tenga 40 procesos) y los navegadores internos que usan WhatsApp, Claude o Teams se suman a su app.
+- Resumen arriba: **tus apps, Windows, memoria comprimida y libre**, gráfica de **presión de memoria** y una frase sencilla que dice si va bien o está llena.
+- Clic en una app para ver cada proceso; **Cerrar app** o **Forzar cierre** (este pide confirmación).
+- Se abre desde el menú del dock, Launchpad, Spotlight o con clic en el widget de Sistema. Solo trabaja mientras está abierto.
+
 ### 🔍 Spotlight (Alt + Espacio)
 
 <img src="docs/img/spotlight.png" width="640" alt="Spotlight">
 
-- Busca **apps**, **archivos y carpetas** (usa el índice que Windows ya tiene), **ajustes** de Windows y hace **cálculos** (`25*4` → `100`).
+- Busca **apps** (también las de la Tienda), **archivos y carpetas** (usa el índice que Windows ya tiene), **ajustes** de Windows y hace **cálculos** (`25*4` → `100`).
 
 ### 👀 Quick Look (Espacio)
 - Selecciona un archivo y presiona **Espacio**: vista previa grande de fotos, texto y código, y PDF/Word/Excel con los visores de Windows. Funciona en el Finder, en las pilas **y en el Explorador de Windows**.
@@ -75,6 +113,7 @@ Incluye además un **menú de ajustes** (un script de PowerShell) que cambia la 
 ### 🎨 Apariencia
 - Acento azul, **cursor estilo Mac** (dibujado por código, nítido en cualquier tamaño), fuente **Inter** (libre, muy parecida a la de Mac), letras suavizadas y sin sonidos del sistema.
 - **Fondos aurora** que cambian con la hora del día (amanecer, día, atardecer, noche), también en la pantalla de bloqueo.
+- **Fondos en pixel art**: **Universo pixel** (nebulosa, planeta con anillos, luna, estrella fugaz) y **Ciudad neón** (ciudad cyberpunk con letreros de neón, sol retro y lluvia de noche). Originales, dibujados por código, también con sus 4 versiones según la hora. Clic derecho en el dock o en el escritorio → **Fondos de MacDock**; "Volver a mi fondo anterior" regresa el tuyo.
 - **Carpetas azules**, Explorador con iconos grandes, menú Inicio más limpio y escritorio limpio (iconos ocultos, accesibles desde la pila).
 - **Esquinas activas:** lleva el mouse a una esquina para ver todas las ventanas o el escritorio.
 - **Clic derecho en el escritorio** con estilo Mac, que incluye todas las opciones de Windows (Nuevo, Pegar, Git, NVIDIA…).
@@ -140,6 +179,8 @@ Cualquiera de estas opciones deja **Windows exactamente como estaba** (barra de 
 | Atajo | Acción |
 |---|---|
 | **Alt + Espacio** | Spotlight |
+| **Alt + Shift + Espacio** | Launchpad |
+| **Alt + Tab** | Selector de apps (Q cierra, H minimiza, Esc cancela) |
 | **Espacio** | Quick Look del archivo seleccionado |
 | **Win + V** | Historial del portapapeles (se activa en los ajustes) |
 | **Shift + clic derecho** | Menú completo de Windows |
@@ -213,6 +254,16 @@ El resultado queda en `dist\` y en `descargas\MacDock-Instalador.zip`, junto a `
 | `src/MenuBar.cs` | La barra superior |
 | `src/Finder.cs` | El explorador de archivos |
 | `src/Spotlight.cs` | El buscador (Alt + Espacio) |
+| `src/Launchpad.cs` | Launchpad: todas las apps a pantalla completa |
+| `src/AppSwitcher.cs` | El selector de apps estilo Cmd + Tab (Alt + Tab) |
+| `src/Widgets.cs` | Los widgets del escritorio (reloj, calendario, batería, sistema, notas) |
+| `src/MacWindow.cs` | Base de las ventanas estilo Mac (botones, tarjetas, pestañas) |
+| `src/FocusWindow.cs` | La ventana de Concentración con tareas |
+| `src/ClockApp.cs` | El Reloj: reloj mundial, alarmas, cronómetro y temporizador |
+| `src/NotificationCenter.cs` | Centro de Notificaciones (clic en la fecha) |
+| `src/ActivityMonitor.cs` | El Monitor de Actividad (memoria por app) |
+| `src/Wallpapers.cs` | Los fondos dibujados por código: aurora, universo pixel y ciudad neón |
+| `src/AppIndex.cs` | La lista de apps instaladas que comparten Launchpad y Spotlight |
 | `src/QuickLook.cs` | La vista rápida (Espacio) |
 | `src/MacButtons.cs` | Los botones de colores sobre las ventanas |
 | `src/Stack.cs` | Las pilas del Escritorio y Descargas |
@@ -230,4 +281,5 @@ El resultado queda en `dist\` y en `descargas\MacDock-Instalador.zip`, junto a `
 
 - Código: **MIT** — ver [LICENSE](LICENSE).
 - Fuente **Inter** © The Inter Project Authors, licencia **SIL Open Font License 1.1** ([src/fonts/OFL.txt](src/fonts/OFL.txt)).
-- Hecho con ❤️ por [Cristhianmcc](https://github.com/Cristhianmcc). Si te sirvió, deja una ⭐ y compártelo.
+- Hecho con ❤️ por [Cristhianmcc](https://github.com/Cristhianmcc).
+- Centro de Control, vistas previas del dock, multi-monitor y modo juego: aporte de Franco Pantoja ([PR #1](https://github.com/Cristhianmcc/macdock/pull/1)), integrado sin la exclusión de Windows Defender. Si te sirvió, deja una ⭐ y compártelo.

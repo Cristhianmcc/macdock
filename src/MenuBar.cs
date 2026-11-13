@@ -6,6 +6,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.IO;
+using System.Linq;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -36,6 +37,51 @@ namespace MacDock
         RectangleF rLogo, rApp, rWinMenu, rWifi, rVol, rBat, rCc, rClock, rTheme, rTray;
         public Action ToggleTheme;   // lo conecta el dock: cambia claro/oscuro
         public Action ShowTray;      // lo conecta el dock: muestra los iconos de la bandeja (Surfshark, Drive...)
+
+        // Apps en segundo plano dibujadas en la barra, como los iconos de la barra de menus de Mac.
+        // Se leen en otro hilo cada 10 s; null = no hay lista (Windows 10) y queda el boton ^ con el panel de Windows.
+        List<TrayApp> trayApps = new List<TrayApp>(); bool trayUnsupported, trayLoading; string traySig = "";
+        readonly List<KeyValuePair<RectangleF, TrayApp>> trayHits = new List<KeyValuePair<RectangleF, TrayApp>>();
+        RectangleF rTrayMore; List<TrayApp> trayOverflow = new List<TrayApp>();
+        const int TrayMaxShown = 6;
+        public bool TrayIcons = true;      // opcion del dock: apps en segundo plano en la barra (si no, el boton ^ de Windows)
+        public bool NotifCenterOn = true;  // opcion del dock: clic en la fecha abre el Centro de Notificaciones (si no, el de Windows)
+
+        public void SetOptions(bool trayIcons, bool notifCenter)
+        {
+            TrayIcons = trayIcons; NotifCenterOn = notifCenter;
+            if (TrayIcons) RefreshTrayAsync();
+            Redraw(true);
+            foreach (var sb in secondaryBars) sb.SetOptions(trayIcons, notifCenter);
+        }
+
+        void RefreshTrayAsync()
+        {
+            if (trayLoading || trayUnsupported || !TrayIcons) return;
+            trayLoading = true;
+            int px = (int)Math.Round(16 * s);
+            var th = new System.Threading.Thread(() =>
+            {
+                List<TrayApp> list = null;
+                try { list = TrayApp.Read(); if (list != null) foreach (var a in list) a.PrepareGlyph(px); } catch (Exception ex) { Program.Log(ex); }
+                try
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        trayLoading = false;
+                        if (IsDisposed) return;
+                        if (list == null) { trayUnsupported = true; Redraw(true); return; }
+                        string sig = string.Join("|", list.Select(a => a.Name).ToArray());
+                        if (sig == traySig) { foreach (var a in list) if (a.Icon != null) a.Icon.Dispose(); foreach (var a in trayApps) { var n = list.FirstOrDefault(x => x.Name == a.Name); if (n != null) a.Pids = n.Pids; } return; }
+                        foreach (var a in trayApps) if (a.Icon != null) a.Icon.Dispose();
+                        trayApps = list; traySig = sig;
+                        Redraw(true);
+                    }));
+                }
+                catch { trayLoading = false; }
+            });
+            th.IsBackground = true; th.Start();
+        }
         Dictionary<string, string> nameCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         static readonly uint myPid = (uint)Process.GetCurrentProcess().Id;
 
@@ -49,7 +95,7 @@ namespace MacDock
             FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual;
             Bounds = new Rectangle(0, 0, 1, 1);
             appBarMsg = N.RegisterWindowMessage("MacDockMenuBarMsg_" + targetScreen.DeviceName.GetHashCode());
-            timer.Interval = 10000; timer.Tick += (o, e) => Redraw(false);
+            timer.Interval = 10000; timer.Tick += (o, e) => { Redraw(false); RefreshTrayAsync(); };
         }
 
         protected override CreateParams CreateParams
@@ -77,6 +123,14 @@ namespace MacDock
             }
             UpdateActive(Win32Fg());
             timer.Start();
+            Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerChanged;   // conectar o quitar el cargador se ve al instante
+            RefreshTrayAsync();   // iconos de las apps en segundo plano desde el inicio
+        }
+
+        void OnPowerChanged(object o, Microsoft.Win32.PowerModeChangedEventArgs e)
+        {
+            if (e.Mode != Microsoft.Win32.PowerModes.StatusChange) return;
+            try { BeginInvoke(new Action(() => Redraw(true))); } catch { }
         }
 
         public void SetMultiMonitor(bool on)
@@ -99,9 +153,46 @@ namespace MacDock
                 var sb = new MenuBar(sc, light, scr, true, false);
                 sb.ToggleTheme = ToggleTheme;
                 sb.ShowTray = ShowTray;
+                sb.TrayIcons = TrayIcons; sb.NotifCenterOn = NotifCenterOn;
                 sb.Show();
                 secondaryBars.Add(sb);
             }
+        }
+
+        // Menu de una app de la barra, como el de los iconos de la barra de menus de Mac
+        void TrayAppMenu(KeyValuePair<RectangleF, TrayApp> hit)
+        {
+            var a = hit.Value;
+            var m = MenuStyle.New(light);
+            Item(m, "Abrir " + a.Name, a.Open);
+            Item(m, "Menú de " + a.Name + "…", () => { if (ShowTray != null) ShowTray(); });   // ahi esta su "Salir" y sus opciones
+            if (a.Pids.Count > 0)
+            {
+                m.Items.Add(new ToolStripSeparator());
+                Item(m, "Forzar cierre", () =>
+                {
+                    if (MessageBox.Show("¿Forzar el cierre de " + a.Name + "?\n\nSe cerrará de inmediato y se perderá lo que no hayas guardado.", "MacDock",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes) { a.ForceQuit(); RefreshTrayAsync(); }
+                });
+            }
+            m.Show(new Point(X + (int)hit.Key.X, Y + H));
+        }
+
+        // » : las apps que no caben en la barra
+        void TrayOverflowMenu()
+        {
+            var m = MenuStyle.New(light);
+            foreach (var a in trayOverflow)
+            {
+                var app = a;
+                var mi = new ToolStripMenuItem(app.Name);
+                if (app.Icon != null && !app.IsTemplate) mi.Image = app.Icon;
+                mi.Click += (o, e) => { try { app.Open(); } catch (Exception ex) { Program.Log(ex); } };
+                m.Items.Add(mi);
+            }
+            m.Items.Add(new ToolStripSeparator());
+            Item(m, "Menús de las apps…", () => { if (ShowTray != null) ShowTray(); });
+            m.Show(new Point(X + (int)rTrayMore.X, Y + H));
         }
 
         static IntPtr Win32Fg() { return N.GetForegroundWindow(); }
@@ -181,12 +272,12 @@ namespace MacDock
         public void Redraw(bool force)
         {
             if (full || W <= 0 || IsDisposed) return;
-            var ps = SystemInformation.PowerStatus;
+            var bat = BatteryGlyph.Read();
             bool net = false, isEth = false; string netLbl;
             SystemStats.GetNetworkInfo(out net, out isEth, out netLbl);
             bool isDesk = DeviceProfile.IsDesktop;
             string clock = ClockText();
-            string key = appName + "|" + title + "|" + clock + "|" + (isDesk ? -1 : (int)(ps.BatteryLifePercent * 100)) + ps.PowerLineStatus + "|" + net + "|" + isEth + "|" + light;
+            string key = appName + "|" + title + "|" + clock + "|" + (isDesk ? -1 : (int)(bat.Pct * 100)) + bat.Plugged + bat.Charging + "|" + net + "|" + isEth + "|" + light + "|" + traySig + trayUnsupported + TrayIcons;
             if (!force && key == lastKey) return;
             lastKey = key;
 
@@ -246,19 +337,14 @@ namespace MacDock
                         rCc = new RectangleF(rx - 6 * s, 0, ccW + 12 * s, H);
                         rx -= 16 * s;
 
-                        float pct = ps.BatteryLifePercent;
-                        if (!isDesk && pct >= 0 && pct <= 1 && ps.BatteryChargeStatus != BatteryChargeStatus.NoSystemBattery)
+                        if (!isDesk && bat.HasBattery)
                         {
-                            string pt = (int)Math.Round(pct * 100) + "%";
+                            string pt = (int)Math.Round(bat.Pct * 100) + "%";
                             float bw = 22 * s, bh = 11 * s;
                             rx -= bw + 2 * s;
                             float by = cy - bh / 2;
-                            using (var pen = new Pen(dim, Math.Max(1f, 1.1f * s)))
-                            using (var path = Round(new RectangleF(rx, by, bw, bh), 3 * s)) g.DrawPath(pen, path);
-                            g.FillRectangle(dimB, rx + bw + 0.8f * s, cy - 2.2f * s, 1.6f * s, 4.4f * s);
-                            Color fill = pct <= 0.2f ? Color.FromArgb(255, 69, 58) : (ps.PowerLineStatus == PowerLineStatus.Online ? Color.FromArgb(52, 199, 89) : fg);
-                            using (var fb = new SolidBrush(fill))
-                            using (var path = Round(new RectangleF(rx + 2 * s, by + 2 * s, Math.Max(1.5f * s, (bw - 4 * s) * pct), bh - 4 * s), 1.5f * s)) g.FillPath(fb, path);
+                            // con el cargador conectado aparece un rayo, como en Mac
+                            BatteryGlyph.Draw(g, new RectangleF(rx, by, bw, bh), bat, fg, dim, light ? Color.FromArgb(246, 246, 248) : Color.FromArgb(28, 28, 32), s);
                             var pts = g.MeasureString(pt, fReg);
                             rx -= pts.Width + 3 * s;
                             g.DrawString(pt, fReg, fgB, rx, cy - pts.Height / 2);
@@ -287,12 +373,39 @@ namespace MacDock
                         rTheme = new RectangleF(rx - 6 * s, 0, ts.Width + 12 * s, H);
                         rx -= 16 * s;
 
-                        // ^ : iconos de la bandeja del sistema (apps en segundo plano)
-                        string tr = "\uE70E";
-                        var trs = g.MeasureString(tr, fIcon); rx -= trs.Width;
-                        g.DrawString(tr, fIcon, fgB, rx, cy - trs.Height / 2);
-                        rTray = new RectangleF(rx - 6 * s, 0, trs.Width + 12 * s, H);
-                        rx -= 24 * s;
+                        // apps en segundo plano: sus iconos directo en la barra, como en Mac (de un color si el icono lo permite)
+                        trayHits.Clear(); rTray = RectangleF.Empty; rTrayMore = RectangleF.Empty; trayOverflow = new List<TrayApp>();
+                        if (trayUnsupported || !TrayIcons)
+                        {
+                            string tr = "\uE70E";   // Windows 10: el boton ^ abre el panel de Windows
+                            var trs = g.MeasureString(tr, fIcon); rx -= trs.Width;
+                            g.DrawString(tr, fIcon, fgB, rx, cy - trs.Height / 2);
+                            rTray = new RectangleF(rx - 6 * s, 0, trs.Width + 12 * s, H);
+                            rx -= 24 * s;
+                        }
+                        else
+                        {
+                            float isz = 16 * s, slot = isz + 14 * s;
+                            var shown = trayApps.Take(trayApps.Count > TrayMaxShown ? TrayMaxShown - 1 : TrayMaxShown).ToList();
+                            trayOverflow = trayApps.Skip(shown.Count).ToList();
+                            if (trayOverflow.Count > 0)
+                            {
+                                string more = "\u00BB";   // » : las que no caben
+                                var ms = g.MeasureString(more, fReg); rx -= ms.Width;
+                                g.DrawString(more, fReg, fgB, rx, cy - ms.Height / 2);
+                                rTrayMore = new RectangleF(rx - 6 * s, 0, ms.Width + 12 * s, H);
+                                rx -= 10 * s;
+                            }
+                            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                            foreach (var a in shown)
+                            {
+                                rx -= slot;
+                                var ir = new RectangleF(rx + (slot - isz) / 2, cy - isz / 2, isz, isz);
+                                a.Draw(g, ir, fg);
+                                trayHits.Add(new KeyValuePair<RectangleF, TrayApp>(new RectangleF(rx, 0, slot, H), a));
+                            }
+                            rx -= 16 * s;
+                        }
 
                         // titulo de la ventana, atenuado, en el espacio que sobra
                         if (title != "" && title != appName && rx - x > 80 * s)
@@ -366,7 +479,9 @@ namespace MacDock
             try
             {
                 if (rTheme.Contains(e.Location)) { if (ToggleTheme != null) ToggleTheme(); }
-                else if (rTray.Contains(e.Location)) { if (ShowTray != null) ShowTray(); }
+                else if (!rTray.IsEmpty && rTray.Contains(e.Location)) { if (ShowTray != null) ShowTray(); }
+                else if (!rTrayMore.IsEmpty && rTrayMore.Contains(e.Location)) TrayOverflowMenu();
+                else if (trayHits.Any(t => t.Key.Contains(e.Location))) TrayAppMenu(trayHits.First(t => t.Key.Contains(e.Location)));
                 else if (rLogo.Contains(e.Location)) SystemMenu();
                 else if (rApp.Contains(e.Location)) AppMenu();
                 else if (!rWinMenu.IsEmpty && rWinMenu.Contains(e.Location)) WindowTilingMenu(rWinMenu);
@@ -375,7 +490,10 @@ namespace MacDock
                     var anchor = new Point(X + W - (int)(12 * s), Y + H + (int)(6 * s));
                     ControlCenter.Toggle(s, light, anchor, targetScreen.Bounds, true, ToggleTheme);
                 }
-                else if (rClock.Contains(e.Location)) N.PressKeys(0x5B, 0x4E);
+                else if (rClock.Contains(e.Location))   // como en Mac: la fecha abre el Centro de Notificaciones
+                {
+                    if (NotifCenterOn) NotificationCenter.Toggle(s, light, targetScreen.WorkingArea); else N.PressKeys(0x5B, 0x4E);
+                }
             }
             catch (Exception ex) { Program.Log(ex); }
         }
@@ -603,6 +721,8 @@ namespace MacDock
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == appBarMsg && appBarMsg != 0 && m.WParam.ToInt32() == 1) SetPos();
+            // WM_POWERBROADCAST / PBT_APMPOWERSTATUSCHANGE: por si el aviso de SystemEvents no llega
+            else if (m.Msg == 0x0218 && m.WParam.ToInt32() == 0x0A) { try { BeginInvoke(new Action(() => Redraw(true))); } catch { } }
             base.WndProc(ref m);
         }
 
@@ -618,6 +738,7 @@ namespace MacDock
                 secondaryBars.Clear();
             }
             catch { }
+            try { Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerChanged; } catch { }
             base.OnFormClosing(e);
         }
     }
@@ -689,7 +810,8 @@ namespace MacDock
             SystemStats.GetNetworkInfo(out netOn, out isEthernet, out netLabel);
             volume = AudioSessions.GetMasterVolume(out muted);
             brightness = DisplayBrightness.Get();
-            MediaControl.GetNowPlaying(out mediaTitle, out mediaApp, out mediaPlaying);
+            ApplyMusic(NowPlaying.Last);   // lo ultimo conocido al instante; RefreshMediaSoon trae lo actual
+            RefreshMediaSoon();
             if (isDesktop)
             {
                 SystemStats.SampleCpuAndRam(out cpuPct, out ramPct, out ramUsedGb, out ramTotalGb);
@@ -1107,9 +1229,9 @@ namespace MacDock
                     Close();
                     N.PressKeys(0x5B, 0x11, 0x56); // Win + Ctrl + V: selector nativo de salida de audio de Windows 11
                 }
-                else if (rPrevBtn.Contains(e.Location)) { MediaControl.PrevTrack(); RefreshMediaSoon(); }
-                else if (rPlayBtn.Contains(e.Location)) { MediaControl.PlayPause(); mediaPlaying = !mediaPlaying; Invalidate(); RefreshMediaSoon(); }
-                else if (rNextBtn.Contains(e.Location)) { MediaControl.NextTrack(); RefreshMediaSoon(); }
+                else if (rPrevBtn.Contains(e.Location)) NowPlaying.Prev(RefreshMediaSoon);
+                else if (rPlayBtn.Contains(e.Location)) { mediaPlaying = !mediaPlaying; Invalidate(); NowPlaying.PlayPause(RefreshMediaSoon); }
+                else if (rNextBtn.Contains(e.Location)) NowPlaying.Next(RefreshMediaSoon);
                 else if (rFootPower.Contains(e.Location))
                 {
                     if (isDesktop)
@@ -1134,11 +1256,19 @@ namespace MacDock
             catch (Exception ex) { Program.Log(ex); }
         }
 
+        // Pide a Windows que esta sonando (en segundo plano) y redibuja la tarjeta
         void RefreshMediaSoon()
         {
-            var t = new System.Windows.Forms.Timer { Interval = 250 };
-            t.Tick += (o, a) => { t.Stop(); t.Dispose(); if (!IsDisposed) { MediaControl.GetNowPlaying(out mediaTitle, out mediaApp, out mediaPlaying); Invalidate(); } };
-            t.Start();
+            if (!IsHandleCreated) { EventHandler h = null; h = (o, e) => { HandleCreated -= h; RefreshMediaSoon(); }; HandleCreated += h; return; }
+            NowPlaying.Refresh(info => { try { BeginInvoke(new Action(() => { if (!IsDisposed) { ApplyMusic(info); Invalidate(); } })); } catch { } });
+        }
+
+        void ApplyMusic(NowPlayingInfo info)
+        {
+            if (info == null || !info.HasSession || info.Title == "") { mediaTitle = "Nada sonando"; mediaApp = "Spotify, YouTube Music, el navegador..."; mediaPlaying = false; return; }
+            mediaTitle = info.Title;
+            mediaApp = info.Artist != "" && info.App != "" ? info.Artist + " · " + info.App : (info.Artist != "" ? info.Artist : info.App);
+            mediaPlaying = info.Playing;
         }
 
         protected override void OnMouseWheel(MouseEventArgs e)

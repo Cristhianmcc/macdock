@@ -86,6 +86,34 @@ NUEVO EN 3.3
   - Pila del Escritorio de lo mas reciente a lo mas antiguo; barra de desplazamiento arrastrable.
 
 
+NUEVO EN 3.9
+  - LAUNCHPAD: el icono de cuadritos del dock (o Alt + Shift + Espacio, o Menu Inicio > Launchpad).
+    Todas tus apps en pantalla completa, con paginas y buscador. Incluye las apps de la Tienda.
+  - ALT + TAB ESTILO MAC: un icono por app. Manteniendo Alt: Tab/flechas = moverse, Q = cerrar la app,
+    H = minimizarla, Esc = cancelar. Ctrl + Alt + Tab sigue siendo el de Windows.
+  - Spotlight ahora tambien encuentra las apps de la Tienda (Calculadora, Configuracion, Fotos...).
+  - Ambas se apagan en clic derecho en el dock > Opciones del dock.
+  - WIDGETS EN EL ESCRITORIO: reloj, calendario, bateria, sistema (CPU y RAM) y notas.
+    Arrastralos para moverlos; clic derecho para quitar o agregar. Opciones del dock > Widgets.
+  - La bateria de la barra superior y del dock muestra un rayo al conectar el cargador.
+  - FONDOS PIXEL ART: "Universo pixel" y "Ciudad neon" (cyberpunk), con versiones por hora del dia.
+    Clic derecho en el dock o en el escritorio > Fondos de MacDock. "Volver a mi fondo anterior" regresa el tuyo.
+  - Botones de Mac: ya no se pierden en apps maximizadas sin barra clasica (WhatsApp, Discord...) ni en apps
+    que aparecen "en dos pasos"; ademas se reparan solos si alguno se queda sin botones.
+  - MUSICA en el Centro de Notificaciones y de Control: cancion, artista, portada y controles reales.
+  - CONCENTRACION (Pomodoro): widget con 25/5 (o 50/10, 15/3), aviso al terminar, No molestar opcional.
+    Clic en el widget: ventana con tiempos y rondas a tu gusto, lista de tareas y pomodoros de hoy.
+  - RELOJ: clic en el widget del reloj. Reloj mundial, alarmas, cronometro y temporizador
+    (suenan aunque cierres la ventana).
+  - WIDGET DE MUSICA para el escritorio: portada, cancion y controles; clic en la portada abre la app.
+  - Centro de Notificaciones: boton "Configurar" que abre los ajustes de notificaciones de Windows.
+  - CENTRO DE NOTIFICACIONES: clic en la fecha de la barra superior. Widgets, No molestar y boton a las de Windows.
+  - MONITOR DE ACTIVIDAD: que app usa tu RAM, agrupado por app, con presion de memoria. Menu del dock,
+    Launchpad, Spotlight o clic en el widget de Sistema.
+  - Mas ligero: los widgets se pausan con juegos/videos a pantalla completa, Launchpad redibuja menos
+    y los iconos guardados se sueltan si no usas Alt+Tab o Spotlight en un rato.
+
+
 AGREGAR APPS AL DOCK
   - Arrastra una app (acceso directo o .exe) desde el Finder, el Escritorio o el menu Inicio al dock.
   - O fijala en la barra de tareas de Windows: aparece sola en el dock.

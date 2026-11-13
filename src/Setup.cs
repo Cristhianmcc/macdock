@@ -233,6 +233,8 @@ namespace MacDock
                     Shell.CreateLnkArgs(Path.Combine(startMenu, "Desinstalar MacDock.lnk"), Exe, "--uninstall");
                     Shell.CreateLnkArgs(Path.Combine(startMenu, "MacDock.lnk"), Exe, "");
                     Shell.CreateLnkArgs(Path.Combine(startMenu, "Finder.lnk"), Exe, "--finder");
+                    Shell.CreateLnkArgs(Path.Combine(startMenu, "Launchpad.lnk"), Exe, "--launchpad");
+                    Shell.CreateLnkArgs(Path.Combine(startMenu, "Monitor de Actividad.lnk"), Exe, "--monitor");
                     Shell.CreateLnkArgs(Path.Combine(startMenu, "Ajustes de Windows (bateria y mas).lnk"), PowerShellExe, AjustesArgs(""));
                 }
                 catch { }
@@ -261,6 +263,8 @@ namespace MacDock
             try
             {
                 StopRunningDock();
+                // el fondo que tenias antes de elegir uno de MacDock en el dock (los Ajustes, abajo, restauran lo suyo despues)
+                try { Wallpapers.RestorePrevious(); } catch { }
                 // deshacer tambien lo aplicado desde "Ajustes de Windows"
                 if (File.Exists(Path.Combine(Dir, "ajustes-respaldo.json")) && File.Exists(AjustesPs1))
                 {
@@ -280,6 +284,8 @@ namespace MacDock
                     File.Delete(Path.Combine(startMenu, "Desinstalar MacDock.lnk"));
                     File.Delete(Path.Combine(startMenu, "MacDock.lnk"));
                     File.Delete(Path.Combine(startMenu, "Finder.lnk"));
+                    File.Delete(Path.Combine(startMenu, "Launchpad.lnk"));
+                    File.Delete(Path.Combine(startMenu, "Monitor de Actividad.lnk"));
                     File.Delete(Path.Combine(startMenu, "Ajustes de Windows (bateria y mas).lnk"));
                 }
                 catch { }

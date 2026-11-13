@@ -21,7 +21,7 @@ namespace MacDock
         [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr h, int flags);
         [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int attr, out int v, int size);
 
-        WinEventProc proc; IntPtr hookSys, hookObj, hookLoc; uint hookThreadId;
+        WinEventProc proc; IntPtr hookSys, hookObj, hookLoc, hookCloak; uint hookThreadId;
         [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
         [DllImport("user32.dll")] static extern bool PostThreadMessage(uint tid, int msg, IntPtr w, IntPtr l);
         readonly HashSet<IntPtr> tracked = new HashSet<IntPtr>();      // ventanas con botones (para filtrar rapido en el hilo de eventos)
@@ -39,8 +39,8 @@ namespace MacDock
                 try { BeginInvoke(new Action(FlushMoves)); } catch { }
                 return;
             }
-            if (ev != 0x0003 && ev != 0x000A && ev != 0x000B && ev != 0x0017 && ev != 0x8000 && ev != 0x8001 && ev != 0x8002 && ev != 0x8003) return;
-            if ((ev == 0x000A || ev == 0x000B || ev == 0x0017 || ev == 0x8001 || ev == 0x8003)) { lock (tracked) { if (!tracked.Contains(hwnd)) return; } }
+            if (ev != 0x0003 && ev != 0x000A && ev != 0x000B && ev != 0x0017 && ev != 0x8000 && ev != 0x8001 && ev != 0x8002 && ev != 0x8003 && ev != 0x8017 && ev != 0x8018) return;
+            if ((ev == 0x000A || ev == 0x000B || ev == 0x0017 || ev == 0x8001 || ev == 0x8003 || ev == 0x8017)) { lock (tracked) { if (!tracked.Contains(hwnd)) return; } }
             try { BeginInvoke(new Action(() => OnEvent(hk, ev, hwnd, obj, child, thread, time))); } catch { }
         }
 
@@ -78,8 +78,9 @@ namespace MacDock
                 hookSys = SetWinEventHook(0x0003, 0x0017, IntPtr.Zero, proc, 0, 0, 0);
                 hookObj = SetWinEventHook(0x8000, 0x8003, IntPtr.Zero, proc, 0, 0, 0);
                 hookLoc = SetWinEventHook(0x800B, 0x800B, IntPtr.Zero, proc, 0, 0, 0);
+                hookCloak = SetWinEventHook(0x8017, 0x8018, IntPtr.Zero, proc, 0, 0, 0);   // las apps modernas (WhatsApp, Teams...) se muestran "descubriendose"
                 Application.Run();
-                UnhookWinEvent(hookSys); UnhookWinEvent(hookObj); UnhookWinEvent(hookLoc);
+                UnhookWinEvent(hookSys); UnhookWinEvent(hookObj); UnhookWinEvent(hookLoc); UnhookWinEvent(hookCloak);
             });
             th.IsBackground = true; th.SetApartmentState(System.Threading.ApartmentState.STA); th.Start();
             active = N.GetForegroundWindow();
@@ -116,6 +117,8 @@ namespace MacDock
                     case 0x000B: case 0x0017: if (overlays.TryGetValue(hwnd, out ov)) ov.Place(hwnd == active); break;
                     case 0x8002: case 0x8000: Ensure(hwnd); break;
                     case 0x8001: case 0x8003: Remove(hwnd); break;
+                    case 0x8017: if (overlays.TryGetValue(hwnd, out ov)) ov.Hide2(); break;                 // se oculto (cloak)
+                    case 0x8018: if (overlays.TryGetValue(hwnd, out ov)) ov.Place(hwnd == active); else Ensure(hwnd); break;   // aparecio
 
                 }
             }
@@ -143,6 +146,16 @@ namespace MacDock
         {
             foreach (var h in overlays.Keys.ToList())
                 if (!IsWindow(h) || !N.IsWindowVisible(h) || overlays[h].IsDisposed) Remove(h);
+            if (paused) return;
+            // Autorreparacion: si una ventana normal se quedo sin botones (o con ellos escondidos) por un aviso que no llego, se vuelven a poner.
+            var all = new List<IntPtr>();
+            N.EnumWindows((h, l) => { if (N.IsWindowVisible(h)) all.Add(h); return true; }, IntPtr.Zero);
+            foreach (var h in all)
+            {
+                ButtonOverlay ov;
+                if (!overlays.TryGetValue(h, out ov)) { Ensure(h); continue; }
+                if (!ov.IsShown && !N.IsIconic(h)) ov.Place(h == active);
+            }
         }
 
         public static bool Eligible(IntPtr h)
@@ -203,6 +216,7 @@ namespace MacDock
         }
 
         public void Hide2() { if (IsHandleCreated && !IsDisposed) N.ShowWindow(Handle, 0); }
+        public bool IsShown { get { return IsHandleCreated && !IsDisposed && N.IsWindowVisible(Handle); } }
 
         public void Place(bool activeWin)
         {
@@ -214,7 +228,7 @@ namespace MacDock
                 isActive = activeWin;
                 N.RECT fr; if (DwmGetWindowAttribute(h, 9, out fr, 16) != 0) N.GetWindowRect(h, out fr);
                 var scr = Screen.FromHandle(h);
-                if (fr.left <= scr.Bounds.Left && fr.top <= scr.Bounds.Top && fr.right >= scr.Bounds.Right && fr.bottom >= scr.Bounds.Bottom && (N.GetWindowLong(h, -16) & 0x00C00000) != 0x00C00000) { Hide2(); return; }
+                if (!N.IsZoomed(h) && fr.left <= scr.Bounds.Left && fr.top <= scr.Bounds.Top && fr.right >= scr.Bounds.Right && fr.bottom >= scr.Bounds.Bottom && (N.GetWindowLong(h, -16) & 0x00C00000) != 0x00C00000) { Hide2(); return; }
                 float dpi = 1f; try { dpi = N.GetDpiForWindow(h) / 96f; } catch { }
                 s = dpi;
                 N.RECT cb, wr; N.GetWindowRect(h, out wr);

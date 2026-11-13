@@ -266,6 +266,32 @@ namespace MacDock
         static extern IntPtr SHGetFileInfo(string pszPath, uint dwFileAttributes, ref SHFILEINFO psfi, uint cbFileInfo, uint uFlags);
         [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr hIcon);
 
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern int GetApplicationUserModelId(IntPtr hProcess, ref uint length, StringBuilder id);
+        static readonly System.Collections.Generic.Dictionary<uint, string> appIdByPid = new System.Collections.Generic.Dictionary<uint, string>();
+
+        // Apps de la Tienda o empaquetadas (WhatsApp, Claude, Spotify de la Tienda...): su programa esta en una carpeta protegida
+        // (WindowsApps) de la que no se puede sacar el icono. Windows si dice que app es cada proceso; con ese "id" se piden
+        // el icono y el nombre reales a "shell:AppsFolder\<id>", igual que el menu Inicio. Devuelve "" si no es una app empaquetada.
+        public static string AppIdOf(uint pid)
+        {
+            lock (appIdByPid)
+            {
+                string id;
+                if (appIdByPid.TryGetValue(pid, out id)) return id;
+                id = "";
+                IntPtr h = N.OpenProcess(0x1000, false, pid);
+                if (h != IntPtr.Zero)
+                    try { uint len = 512; var sb = new StringBuilder((int)len); if (GetApplicationUserModelId(h, ref len, sb) == 0) id = sb.ToString(); }
+                    catch { }
+                    finally { N.CloseHandle(h); }
+                if (appIdByPid.Count > 400) appIdByPid.Clear();
+                appIdByPid[pid] = id;
+                return id;
+            }
+        }
+
+        public static string AppsFolderPath(string appId) { return @"shell:AppsFolder\" + appId; }
+
         public static Bitmap GetIcon(string path, int px, int flags = 4)
         {
             IShellItemImageFactory f = null; IntPtr hb = IntPtr.Zero;
@@ -383,33 +409,34 @@ namespace MacDock
             p.CloseFigure(); return p;
         }
 
+        [DllImport("gdi32.dll")] static extern int GetDIBits(IntPtr hdc, IntPtr hbm, uint start, uint lines, byte[] bits, ref N.BITMAPINFOHEADER bmi, uint usage);
+
+        // Convierte el HBITMAP del Shell conservando la transparencia.
+        // Antes se leian los pixeles a mano segun el signo de biHeight, pero en las miniaturas de fotos Windows a veces
+        // reporta ese signo al reves y las fotos salian de cabeza. Ahora se le pide a Windows (GetDIBits) la imagen
+        // ya ordenada de arriba hacia abajo (biHeight negativo), sin adivinar.
         static Bitmap FromHBitmap(IntPtr hb)
         {
             N.DIBSECTION ds;
-            if (N.GetObject(hb, Marshal.SizeOf(typeof(N.DIBSECTION)), out ds) == 0 || ds.dsBm.bmBits == IntPtr.Zero || ds.dsBm.bmBitsPixel != 32)
+            if (N.GetObject(hb, Marshal.SizeOf(typeof(N.DIBSECTION)), out ds) == 0 || ds.dsBm.bmBitsPixel != 32)
                 return Image.FromHbitmap(hb);
             int w = ds.dsBm.bmWidth, h = Math.Abs(ds.dsBm.bmHeight);
-            bool bottomUp = ds.dsBmih.biHeight > 0;
+            if (w <= 0 || h <= 0) return Image.FromHbitmap(hb);
+            var bits = new byte[w * h * 4];
+            var bi = new N.BITMAPINFOHEADER { biSize = (uint)Marshal.SizeOf(typeof(N.BITMAPINFOHEADER)), biWidth = w, biHeight = -h, biPlanes = 1, biBitCount = 32, biCompression = 0 };
+            IntPtr dc = N.GetDC(IntPtr.Zero);
+            int got;
+            try { got = GetDIBits(dc, hb, 0, (uint)h, bits, ref bi, 0); }
+            finally { N.ReleaseDC(IntPtr.Zero, dc); }
+            if (got != h) return Image.FromHbitmap(hb);
+
+            bool anyAlpha = false;
+            for (int i = 3; i < bits.Length; i += 4) if (bits[i] != 0) { anyAlpha = true; break; }
+            if (!anyAlpha) for (int i = 3; i < bits.Length; i += 4) bits[i] = 255;   // fotos sin canal de transparencia: opacas
+
             var bmp = new Bitmap(w, h, PixelFormat.Format32bppPArgb);
             var bd = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
-            var row = new byte[w * 4]; bool anyAlpha = false;
-            for (int y = 0; y < h; y++)
-            {
-                IntPtr src = new IntPtr(ds.dsBm.bmBits.ToInt64() + (long)(bottomUp ? (h - 1 - y) : y) * ds.dsBm.bmWidthBytes);
-                Marshal.Copy(src, row, 0, row.Length);
-                if (!anyAlpha) for (int i = 3; i < row.Length; i += 4) if (row[i] != 0) { anyAlpha = true; break; }
-                Marshal.Copy(row, 0, new IntPtr(bd.Scan0.ToInt64() + (long)y * bd.Stride), row.Length);
-            }
-            if (!anyAlpha)
-            {
-                for (int y = 0; y < h; y++)
-                {
-                    IntPtr dst = new IntPtr(bd.Scan0.ToInt64() + (long)y * bd.Stride);
-                    Marshal.Copy(dst, row, 0, row.Length);
-                    for (int i = 3; i < row.Length; i += 4) row[i] = 255;
-                    Marshal.Copy(row, 0, dst, row.Length);
-                }
-            }
+            for (int y = 0; y < h; y++) Marshal.Copy(bits, y * w * 4, new IntPtr(bd.Scan0.ToInt64() + (long)y * bd.Stride), w * 4);
             bmp.UnlockBits(bd);
             return bmp;
         }
@@ -486,6 +513,11 @@ namespace MacDock
 
                 int st;
                 if (SHQueryUserNotificationState(out st) == 0 && (st == 3 || st == 4) && scr.Primary) return true;   // D3D exclusivo o modo presentacion
+
+                // Una ventana maximizada no es pantalla completa aunque no tenga barra de titulo clasica
+                // (WhatsApp, Discord, Spotify...): con la barra de Windows oculta cubre todo el monitor y se confundia con un juego,
+                // y entonces se escondian el dock, la barra superior y los botones de Mac.
+                if (N.IsZoomed(fg)) return false;
 
                 // 1) "Pantalla completa sin bordes" clasica: el area cliente cubre exactamente este monitor (con tolerancia de 2px de Windows 11).
                 N.RECT c;

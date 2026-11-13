@@ -55,7 +55,7 @@ $man = $man -replace 'assemblyIdentity version="[^"]*"', "assemblyIdentity versi
 $manGen = Join-Path $build "app.g.manifest"
 Set-Content -Path $manGen -Value $man -Encoding UTF8
 
-$cs = "Native.cs", "Dock.cs", "Setup.cs", "Saver.cs", "Stack.cs", "MenuBar.cs", "Ui.cs", "FileOps.cs", "QuickLook.cs", "Spotlight.cs", "Finder.cs", "MacButtons.cs", "ShellMenu.cs", "SysToggles.cs" | ForEach-Object { Join-Path $src $_ }
+$cs = "Native.cs", "Dock.cs", "Setup.cs", "Saver.cs", "Stack.cs", "MenuBar.cs", "Ui.cs", "FileOps.cs", "QuickLook.cs", "Spotlight.cs", "Finder.cs", "MacButtons.cs", "ShellMenu.cs", "AppIndex.cs", "Launchpad.cs", "AppSwitcher.cs", "Widgets.cs", "Wallpapers.cs", "ActivityMonitor.cs", "TrayApps.cs", "NotificationCenter.cs", "NowPlaying.cs", "Focus.cs", "MacWindow.cs", "MacChrome.cs", "FocusWindow.cs", "ClockApp.cs", "SysToggles.cs" | ForEach-Object { Join-Path $src $_ }
 $cs += $aiGen
 $res = @(
     "/resource:$src\ajustes.ps1,ajustes.ps1",
@@ -63,6 +63,30 @@ $res = @(
     "/resource:$src\fonts\Inter-Medium.ttf,Inter-Medium.ttf",
     "/resource:$src\fonts\Inter-SemiBold.ttf,Inter-SemiBold.ttf",
     "/resource:$src\fonts\OFL.txt,OFL.txt")
+# --- Modulo opcional de musica (API oficial de Windows para "que esta sonando"). Si no se puede compilar
+#     en esta PC, MacDock se compila igual y usa el metodo anterior (titulo de la ventana y teclas multimedia).
+$mediaDll = Join-Path $build "MacDockMedia.dll"
+Remove-Item $mediaDll -ErrorAction SilentlyContinue
+try {
+    $wm = Join-Path $env:WINDIR "System32\WinMetadata"
+    $fw = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319"
+    $gac = Join-Path $env:WINDIR "Microsoft.NET\assembly\GAC_MSIL"
+    $facades = "System.Runtime", "System.Threading.Tasks", "System.IO", "System.Runtime.InteropServices.WindowsRuntime" | ForEach-Object {
+        Get-ChildItem (Join-Path $gac $_) -Recurse -Filter "$_.dll" -ErrorAction SilentlyContinue | Select-Object -First 1 }
+    if ((Test-Path "$wm\Windows.Media.winmd") -and (Test-Path "$fw\System.Runtime.WindowsRuntime.dll") -and $facades.Count -gt 0) {
+        $margs = @("/nologo", "/target:library", "/optimize+", "/out:$mediaDll",
+                   "/r:$wm\Windows.Foundation.winmd", "/r:$wm\Windows.Media.winmd", "/r:$wm\Windows.Storage.winmd",
+                   "/r:$fw\System.Runtime.WindowsRuntime.dll") + ($facades | ForEach-Object { "/r:$($_.FullName)" }) + @((Join-Path $src "media\MediaSession.cs"))
+        & $csc @margs | Out-Host
+    }
+} catch { }
+if ((Test-Path $mediaDll) -and $LASTEXITCODE -eq 0) {
+    $res += "/resource:$mediaDll,MacDockMedia.dll"
+    Write-Host "Musica: usando la API de Windows (titulo, artista y portada)." -ForegroundColor Cyan
+} else {
+    Write-Host "Aviso: sin el modulo de musica de Windows; se usa el titulo de la ventana." -ForegroundColor Yellow
+}
+
 $out = Join-Path $build "MacDock.exe"
 $args2 = @("/nologo", "/target:winexe", "/platform:x64", "/optimize+",
            "/win32icon:$src\dock.ico", "/win32manifest:$manGen") + $res +
