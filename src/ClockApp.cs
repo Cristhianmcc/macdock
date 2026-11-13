@@ -165,7 +165,7 @@ namespace MacDock
             catch (Exception ex) { Program.Log(ex); }
         }
 
-        ClockApp() : base("Reloj", 640, 520)
+        ClockApp() : base("Reloj", 680, 580)
         {
             label = MakeBox("Nombre (opcional)");
             label.MaxLength = 60;
@@ -206,15 +206,19 @@ namespace MacDock
             ClockEngine.Save(); label.Text = ""; Invalidate();
         }
 
+        // como en el Reloj de Mac: las pestañas van en la barra de arriba
+        protected override bool ShowTitle { get { return false; } }
+        protected override void DrawTitleBar(Graphics g, RectangleF bar)
+        {
+            float sw = Math.Min(bar.Width - 220 * s, 440 * s);
+            Segments(g, new RectangleF(bar.X + (bar.Width - sw) / 2, bar.Y + (bar.Height - 28 * s) / 2, sw, 28 * s), new[] { "Reloj mundial", "Alarmas", "Cronómetro", "Temporizador" }, Tab,
+                i => { Tab = i; scroll = 0; });
+        }
+
         protected override void Draw(Graphics g)
         {
-            g.Clear(Bg);
             float pad = 16 * s;
-            var r = new RectangleF(pad, pad, ClientSize.Width - pad * 2, ClientSize.Height - pad * 2);
-            float sw = Math.Min(r.Width, 460 * s);
-            Segments(g, new RectangleF(r.X + (r.Width - sw) / 2, r.Y, sw, 30 * s), new[] { "Reloj mundial", "Alarmas", "Cronómetro", "Temporizador" }, Tab,
-                i => { Tab = i; scroll = 0; });
-            var body = new RectangleF(r.X, r.Y + 30 * s + 14 * s, r.Width, r.Height - 44 * s);
+            var body = new RectangleF(pad, TitleH + 14 * s, ClientSize.Width - pad * 2, ClientSize.Height - TitleH - 14 * s - pad);
             label.Visible = Tab == 1;
             tick.Interval = Tab == 2 && ClockEngine.Watch.IsRunning ? 50 : 1000;
             switch (Tab)
@@ -263,8 +267,7 @@ namespace MacDock
                 using (var f = F(12f)) Txt(g, sub, f, Sub, new RectangleF(row.X + 62 * s, row.Y + 38 * s, row.Width - 260 * s, 18 * s));
                 using (var f = F(28f)) Txt(g, t.HasValue ? t.Value.ToString("HH:mm") : "--:--", f, Fg, new RectangleF(row.Right - 190 * s, row.Y, 150 * s, rowH), StringAlignment.Far);
                 var del = new RectangleF(row.Right - 26 * s, row.Y + (rowH - 24 * s) / 2, 24 * s, 24 * s);
-                using (var fi = Icons(10f)) Txt(g, "", fi, Sub, del, StringAlignment.Center);
-                if (del.Y >= listArea.Y && del.Bottom <= listArea.Bottom) Hit(del, () => { ClockEngine.Cities.Remove(city); ClockEngine.Save(); });
+                if (del.Y >= listArea.Y && del.Bottom <= listArea.Bottom) IconButton(g, del, "x", () => { ClockEngine.Cities.Remove(city); ClockEngine.Save(); }, Color.Transparent, Sub);
                 if (y < listArea.Bottom) using (var pen = new Pen(CardBorder)) g.DrawLine(pen, row.X + 62 * s, row.Bottom, row.Right, row.Bottom);
             }
             g.Restore(st);
@@ -297,8 +300,8 @@ namespace MacDock
             };
             line((t.Hour % 12 + t.Minute / 60.0) * 30, R * 0.5f, 2.4f * s, hand);
             line((t.Minute + t.Second / 60.0) * 6, R * 0.75f, 1.8f * s, hand);
-            line(t.Second * 6, R * 0.8f, 1f * s, Color.FromArgb(255, 149, 0));
-            using (var b = new SolidBrush(Color.FromArgb(255, 149, 0))) g.FillEllipse(b, c.X - 2 * s, c.Y - 2 * s, 4 * s, 4 * s);
+            line(t.Second * 6, R * 0.8f, 1f * s, Orange);
+            using (var b = new SolidBrush(Orange)) g.FillEllipse(b, c.X - 2 * s, c.Y - 2 * s, 4 * s, 4 * s);
         }
 
         // ---------- alarmas ----------
@@ -317,10 +320,10 @@ namespace MacDock
             using (var f = F(40f)) { Txt(g, newH.ToString("00"), f, Fg, hr, StringAlignment.Center); Txt(g, newM.ToString("00"), f, Fg, mr, StringAlignment.Center); }
             using (var f = F(36f)) Txt(g, ":", f, Sub, new RectangleF(hr.Right, hr.Y, mr.X - hr.Right, hr.Height), StringAlignment.Center);
             float ab = 26 * s;
-            IconButton(g, new RectangleF(hr.X + (half - ab) / 2, timeR.Y, ab, ab), "", () => newH = (newH + 1) % 24);
-            IconButton(g, new RectangleF(hr.X + (half - ab) / 2, timeR.Bottom - ab, ab, ab), "", () => newH = (newH + 23) % 24);
-            IconButton(g, new RectangleF(mr.X + (half - ab) / 2, timeR.Y, ab, ab), "", () => newM = (newM + 5) % 60);
-            IconButton(g, new RectangleF(mr.X + (half - ab) / 2, timeR.Bottom - ab, ab, ab), "", () => newM = (newM + 55) % 60);
+            IconButton(g, new RectangleF(hr.X + (half - ab) / 2, timeR.Y, ab, ab), "up", () => newH = (newH + 1) % 24);
+            IconButton(g, new RectangleF(hr.X + (half - ab) / 2, timeR.Bottom - ab, ab, ab), "down", () => newH = (newH + 23) % 24);
+            IconButton(g, new RectangleF(mr.X + (half - ab) / 2, timeR.Y, ab, ab), "up", () => newM = (newM + 5) % 60);
+            IconButton(g, new RectangleF(mr.X + (half - ab) / 2, timeR.Bottom - ab, ab, ab), "down", () => newM = (newM + 55) % 60);
             Hit(hr, () => newH = (newH + 1) % 24);
             Hit(mr, () => newM = (newM + 1) % 60);
 
@@ -330,7 +333,7 @@ namespace MacDock
             var bb = Rectangle.Round(new RectangleF(inR.X + 10 * s, inR.Y + (inR.Height - label.PreferredHeight) / 2, inR.Width - 20 * s, label.PreferredHeight));
             if (label.Bounds != bb) label.Bounds = bb;
             Segments(g, new RectangleF(fx, inR.Bottom + 12 * s, fw, 30 * s), new[] { "Una vez", "Diario", "Lun a vie" }, newRepeat, i => newRepeat = i);
-            Button(g, new RectangleF(fx, fc.Bottom - ip - 32 * s, fw, 32 * s), "Agregar alarma", AddAlarm, true, Color.FromArgb(255, 149, 0));
+            Button(g, new RectangleF(fx, fc.Bottom - ip - 32 * s, fw, 32 * s), "Agregar alarma", AddAlarm, true, Orange);
 
             // lista
             var list = new RectangleF(r.X, fc.Bottom + 12 * s, r.Width, r.Bottom - fc.Bottom - 12 * s);
@@ -357,20 +360,10 @@ namespace MacDock
                 var sw = new RectangleF(row.Right - 84 * s, row.Y + (rowH - 24 * s) / 2, 42 * s, 24 * s);
                 Switch(g, sw, al.On, () => { al.On = !al.On; ClockEngine.Save(); });
                 var del = new RectangleF(row.Right - 26 * s, row.Y + (rowH - 24 * s) / 2, 24 * s, 24 * s);
-                using (var fi = Icons(10f)) Txt(g, "", fi, Sub, del, StringAlignment.Center);
-                if (del.Y >= listArea.Y && del.Bottom <= listArea.Bottom) Hit(del, () => { ClockEngine.Alarms.Remove(al); ClockEngine.Save(); });
+                if (del.Y >= listArea.Y && del.Bottom <= listArea.Bottom) IconButton(g, del, "x", () => { ClockEngine.Alarms.Remove(al); ClockEngine.Save(); }, Color.Transparent, Sub);
                 if (y < listArea.Bottom) using (var pen = new Pen(CardBorder)) g.DrawLine(pen, row.X, row.Bottom, row.Right, row.Bottom);
             }
             g.Restore(st);
-        }
-
-        // interruptor verde estilo Mac
-        void Switch(Graphics g, RectangleF r, bool on, Action a)
-        {
-            using (var p = Round(r, r.Height / 2)) using (var b = new SolidBrush(on ? Green : Soft)) g.FillPath(b, p);
-            float k = r.Height - 4 * s;
-            using (var b = new SolidBrush(Color.White)) g.FillEllipse(b, on ? r.Right - k - 2 * s : r.X + 2 * s, r.Y + 2 * s, k, k);
-            Hit(r, a);
         }
 
         // ---------- cronometro ----------
@@ -427,12 +420,12 @@ namespace MacDock
             if (ClockEngine.TimerActive)
             {
                 var left = ClockEngine.TimerLeft;
-                Ring(g, c, R, 10 * s, (float)(left.TotalSeconds / Math.Max(1, ClockEngine.TimerTotal.TotalSeconds)), Color.FromArgb(255, 149, 0));
+                Ring(g, c, R, 10 * s, (float)(left.TotalSeconds / Math.Max(1, ClockEngine.TimerTotal.TotalSeconds)), Orange);
                 using (var f = F(Math.Max(24f, R / s * 0.42f))) Txt(g, Hms(left), f, Fg, new RectangleF(c.X - R, c.Y - R, R * 2, R * 2), StringAlignment.Center);
                 using (var f = F(12.5f)) Txt(g, "Suena a las " + (DateTime.Now + left).ToString("HH:mm"), f, Sub, new RectangleF(c.X - R, c.Y + R * 0.35f, R * 2, 20 * s), StringAlignment.Center);
                 Button(g, new RectangleF(cx - bw - 8 * s, by, bw, 34 * s), "Cancelar", ClockEngine.TimerCancel);
                 Button(g, new RectangleF(cx + 8 * s, by, bw, 34 * s), ClockEngine.TimerRunning ? "Pausar" : "Reanudar",
-                    () => { if (ClockEngine.TimerRunning) ClockEngine.TimerPause(); else ClockEngine.TimerStart(); }, true, ClockEngine.TimerRunning ? Color.FromArgb(255, 149, 0) : Green);
+                    () => { if (ClockEngine.TimerRunning) ClockEngine.TimerPause(); else ClockEngine.TimerStart(); }, true, ClockEngine.TimerRunning ? Orange : Green);
                 return;
             }
             // elegir el tiempo
@@ -448,8 +441,8 @@ namespace MacDock
                 int idx = i;
                 var col = new RectangleF(card.X + 16 * s + i * colW, card.Y + 12 * s, colW, card.Height - 24 * s);
                 float ab = 26 * s;
-                IconButton(g, new RectangleF(col.X + (col.Width - ab) / 2, col.Y, ab, ab), "", () => AdjustTimer(idx, steps[idx]));
-                IconButton(g, new RectangleF(col.X + (col.Width - ab) / 2, col.Bottom - ab, ab, ab), "", () => AdjustTimer(idx, -steps[idx]));
+                IconButton(g, new RectangleF(col.X + (col.Width - ab) / 2, col.Y, ab, ab), "up", () => AdjustTimer(idx, steps[idx]));
+                IconButton(g, new RectangleF(col.X + (col.Width - ab) / 2, col.Bottom - ab, ab, ab), "down", () => AdjustTimer(idx, -steps[idx]));
                 using (var f = F(40f)) Txt(g, vals[i].ToString("00"), f, Fg, new RectangleF(col.X, col.Y + ab, col.Width, col.Height - ab * 2 - 14 * s), StringAlignment.Center);
                 using (var f = F(11.5f)) Txt(g, names[i], f, Sub, new RectangleF(col.X, col.Bottom - ab - 18 * s, col.Width, 16 * s), StringAlignment.Center);
             }

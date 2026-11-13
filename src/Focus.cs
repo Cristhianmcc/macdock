@@ -77,10 +77,32 @@ namespace MacDock
 
         public static void Skip() { Finish(false); }
 
+        // elegir la fase a mano (las pestañas de la ventana); si estaba corriendo, sigue corriendo en la nueva
+        public static void SetPhase(Phase p)
+        {
+            if (p == Current) return;
+            bool was = Running;
+            if (Running) { Running = false; Silence(false); }
+            Current = p; left = Total;
+            if (p == Phase.Focus && Round > Rounds) Round = 1;
+            if (was) Toggle();
+        }
+
+        // lo que viene despues de la fase actual, para que siempre se sepa que sigue
+        public static Phase Next { get { return Current == Phase.Focus ? (Round >= Rounds ? Phase.LongBreak : Phase.Break) : Phase.Focus; } }
+        public static string NameOf(Phase p) { return p == Phase.Focus ? "Concentración" : p == Phase.Break ? "Descanso" : "Descanso largo"; }
+        public static int MinutesOf(Phase p) { return p == Phase.Focus ? FocusMin : p == Phase.Break ? BreakMin : LongMin; }
+        public static bool Started { get { return Running || left < Total; } }   // ya se empezo esta fase (corriendo o en pausa)
+
+        // cambiar los minutos se nota al instante en la fase actual (aunque ya este corriendo o en pausa)
         public static void SetDurations(int focus, int brk, int lng)
         {
+            var before = Total; bool started = Started;
             FocusMin = focus; BreakMin = brk; LongMin = lng; SaveSettings();
-            if (!Running) left = Total;
+            var delta = Total - before;
+            if (Running) endsAt += delta;
+            else if (started) { left += delta; if (left < TimeSpan.Zero) left = TimeSpan.Zero; }
+            else left = Total;
         }
 
         public static void SetRounds(int n) { Rounds = Math.Max(2, Math.Min(8, n)); if (Round > Rounds) Round = Rounds; SaveSettings(); }
