@@ -346,17 +346,52 @@ namespace MacDock
 
                 if (snap == null) { Txt(g, "Leyendo memoria...", f, Dim, pad, 80 * s); return; }
 
-                // ---------- tarjeta de resumen ----------
-                float cy = pad + 36 * s, ch = 168 * s;
-                var card = new RectangleF(pad, cy, W - pad * 2, ch);
-                using (var p = Round(card, 12 * s)) { using (var b = new SolidBrush(Card)) g.FillPath(b, p); using (var pen = new Pen(Line)) g.DrawPath(pen, p); }
-
+                // ---------- tarjeta de resumen (se acomoda al ancho de la ventana) ----------
                 long used = snap.Total - snap.Available;
                 long sys = Math.Max(0, used - snap.AppsMem - snap.Compressed);
                 float frac = snap.UsedFraction;
-                // barra apilada: apps / Windows / comprimida / libre
-                var bar = new RectangleF(card.X + pad, card.Y + pad + 22 * s, card.Width * 0.58f - pad, 16 * s);
-                Txt(g, MemReader.Size(used) + " en uso de " + MemReader.Size(snap.Total), fb, Fg, bar.X, card.Y + pad - 2 * s);
+                string verdict = frac < 0.75f ? "Todo bien: queda memoria libre de sobra."
+                               : frac < 0.88f ? "Va justa: cerrar alguna app que no uses ayudaría."
+                               : "Muy llena: Windows está usando el disco como memoria y todo se siente lento.";
+                var top = snap.Apps.FirstOrDefault(a => !a.IsSystem);
+                // "Windows y cache" incluye lo que Windows guarda en memoria para abrir todo mas rapido (y suelta cuando hace falta);
+                // en la lista, "Windows (sistema y servicios)" son solo sus programas.
+                string tip = top == null ? "" : top.Name + " es la que más usa (" + MemReader.Size(top.Mem) + (top.Procs.Count > 1 ? ", en " + top.Procs.Count + " procesos" : "") + ")." + (IsBrowser(top) ? " Cada pestaña abierta suma." : "");
+                string expl = "\"Windows y caché\" incluye lo que Windows guarda para ir más rápido; lo suelta solo si una app lo necesita.";
+
+                float cy = pad + 36 * s;
+                float inner = W - pad * 4;                           // ancho util dentro de la tarjeta
+                bool side = inner >= 600 * s;                        // ventana ancha: grafica a la derecha; angosta: debajo
+                float gw = side ? Math.Max(200 * s, Math.Min(380 * s, inner * 0.36f)) : inner;
+                float leftW = side ? inner - gw - pad * 1.5f : inner;
+                float lx0 = pad * 2;
+
+                // leyenda en renglones segun quepa
+                var legend = new[] {
+                    new KeyValuePair<string, Color>("Tus apps  " + MemReader.Size(snap.AppsMem), CApps),
+                    new KeyValuePair<string, Color>("Windows y caché  " + MemReader.Size(sys), CSys),
+                    new KeyValuePair<string, Color>("Comprimida  " + MemReader.Size(snap.Compressed), CComp),
+                    new KeyValuePair<string, Color>("Libre  " + MemReader.Size(snap.Available), light ? Color.FromArgb(205, 205, 210) : Color.FromArgb(80, 80, 88)) };
+                var legendPos = new List<PointF>(); float lxp = 0, lrow = 0, legRowH = fs.Height + 6 * s;
+                foreach (var it in legend)
+                {
+                    float iw = 12 * s + g.MeasureString(it.Key, fs).Width + 14 * s;
+                    if (lxp > 0 && lxp + iw > leftW) { lxp = 0; lrow++; }
+                    legendPos.Add(new PointF(lxp, lrow * legRowH)); lxp += iw;
+                }
+                float legendH = (lrow + 1) * legRowH;
+                float textW = leftW - 15 * s;
+                float hVerdict = g.MeasureString(verdict, f, (int)textW).Height, hTip = tip == "" ? 0 : g.MeasureString(tip, fs, (int)textW).Height, hExpl = g.MeasureString(expl, fs, (int)textW).Height;
+                float leftH = 22 * s + 16 * s + 12 * s + legendH + 6 * s + hVerdict + 2 * s + hTip + 2 * s + hExpl;
+                float graphH = side ? Math.Max(90 * s, leftH - 20 * s) : 70 * s;
+                float ch = pad * 2 + (side ? Math.Max(leftH, graphH + 20 * s) : leftH + 14 * s + 20 * s + graphH);
+                var card = new RectangleF(pad, cy, W - pad * 2, ch);
+                using (var p = Round(card, 12 * s)) { using (var b = new SolidBrush(Card)) g.FillPath(b, p); using (var pen = new Pen(Line)) g.DrawPath(pen, p); }
+
+                // titulo y barra apilada: apps / Windows y cache / comprimida / libre
+                float yy = card.Y + pad;
+                Txt(g, MemReader.Size(used) + " en uso de " + MemReader.Size(snap.Total), fb, Fg, lx0, yy - 2 * s, leftW);
+                var bar = new RectangleF(lx0, yy + 22 * s, leftW, 16 * s);
                 using (var p = Round(bar, 5 * s)) using (var b = new SolidBrush(light ? Color.FromArgb(232, 232, 236) : Color.FromArgb(60, 60, 66))) g.FillPath(b, p);
                 var state = g.Save();
                 using (var clip = Round(bar, 5 * s)) g.SetClip(clip);
@@ -368,37 +403,38 @@ namespace MacDock
                     x += w;
                 }
                 g.Restore(state);
-                // leyenda
-                float ly = bar.Bottom + 12 * s, lx = bar.X;
-                lx = Legend(g, fs, CApps, "Tus apps", MemReader.Size(snap.AppsMem), lx, ly);
-                lx = Legend(g, fs, CSys, "Windows y caché", MemReader.Size(sys), lx, ly);
-                lx = Legend(g, fs, CComp, "Comprimida", MemReader.Size(snap.Compressed), lx, ly);
-                Legend(g, fs, light ? Color.FromArgb(205, 205, 210) : Color.FromArgb(80, 80, 88), "Libre", MemReader.Size(snap.Available), lx, ly);
-                // frase sencilla
-                string verdict = frac < 0.75f ? "Todo bien: queda memoria libre de sobra."
-                               : frac < 0.88f ? "Va justa: cerrar alguna app que no uses ayudaría."
-                               : "Muy llena: Windows está usando el disco como memoria y todo se siente lento.";
-                var top = snap.Apps.FirstOrDefault(a => !a.IsSystem);
-                // "Windows y cache" de arriba incluye lo que Windows guarda en memoria para abrir todo mas rapido (y suelta cuando hace falta);
-                // en la lista, "Windows (sistema y servicios)" son solo sus programas.
-                string tip = top == null ? "" : top.Name + " es la que más usa (" + MemReader.Size(top.Mem) + (top.Procs.Count > 1 ? ", en " + top.Procs.Count + " procesos" : "") + ")." + (IsBrowser(top) ? " Cada pestaña abierta suma." : "");
-                using (var b = new SolidBrush(Level(frac))) g.FillEllipse(b, bar.X, ly + 30 * s, 9 * s, 9 * s);
-                Txt(g, verdict, f, Fg, bar.X + 15 * s, ly + 25 * s);
-                Txt(g, tip, fs, Dim, bar.X + 15 * s, ly + 45 * s, bar.Width + 60 * s);
-                Txt(g, "\"Windows y caché\" incluye lo que Windows guarda para ir más rápido; lo suelta solo si una app lo necesita.", fs, Dim, bar.X + 15 * s, ly + 63 * s, bar.Width + 60 * s);
+                float ly = bar.Bottom + 12 * s;
+                for (int li = 0; li < legend.Length; li++)
+                {
+                    float px = lx0 + legendPos[li].X, py = ly + legendPos[li].Y;
+                    using (var b = new SolidBrush(legend[li].Value)) g.FillEllipse(b, px, py + fs.Height / 2f - 4 * s, 8 * s, 8 * s);
+                    Txt(g, legend[li].Key, fs, Fg, px + 12 * s, py);
+                }
+                // frases (con salto de renglon, nunca debajo de la grafica)
+                float ty0 = ly + legendH + 6 * s;
+                using (var b = new SolidBrush(Level(frac))) g.FillEllipse(b, lx0, ty0 + f.Height / 2f - 4.5f * s, 9 * s, 9 * s);
+                Wrap(g, verdict, f, Fg, lx0 + 15 * s, ty0, textW);
+                Wrap(g, tip, fs, Dim, lx0 + 15 * s, ty0 + hVerdict + 2 * s, textW);
+                Wrap(g, expl, fs, Dim, lx0 + 15 * s, ty0 + hVerdict + 2 * s + hTip + 2 * s, textW);
 
-                // grafica de presion de memoria
-                var gr = new RectangleF(card.X + card.Width * 0.62f, card.Y + pad + 18 * s, card.Width * 0.38f - pad, ch - pad * 2 - 18 * s);
-                Txt(g, "Presión de memoria", fs, Dim, gr.X, card.Y + pad - 2 * s);
-                using (var p = Round(gr, 6 * s)) using (var b = new SolidBrush(light ? Color.FromArgb(244, 244, 247) : Color.FromArgb(34, 34, 38))) g.FillPath(b, p);
+                // grafica de presion de memoria: area suave, del color del nivel actual
+                var gr = side ? new RectangleF(card.Right - pad - gw, card.Y + pad + 20 * s, gw, ch - pad * 2 - 20 * s)
+                              : new RectangleF(lx0, card.Bottom - pad - graphH, inner, graphH);
+                Txt(g, "Presión de memoria", fs, Dim, gr.X, gr.Y - 20 * s);
+                using (var p = Round(gr, 8 * s)) using (var b = new SolidBrush(light ? Color.FromArgb(244, 244, 247) : Color.FromArgb(34, 34, 38))) g.FillPath(b, p);
                 if (history.Count > 1)
                 {
                     float step = gr.Width / 89f;
-                    for (int i = 0; i < history.Count; i++)
-                    {
-                        float hx = gr.Right - (history.Count - 1 - i) * step - step, hh = gr.Height * history[i];
-                        using (var b = new SolidBrush(Level(history[i]))) g.FillRectangle(b, hx, gr.Bottom - hh, Math.Max(1f, step - 0.5f), hh);
-                    }
+                    var pts = new List<PointF>();
+                    for (int hi = 0; hi < history.Count; hi++)
+                        pts.Add(new PointF(gr.Right - (history.Count - 1 - hi) * step, gr.Bottom - (gr.Height - 4 * s) * history[hi]));
+                    var area = new List<PointF>(pts); area.Add(new PointF(gr.Right, gr.Bottom)); area.Add(new PointF(pts[0].X, gr.Bottom));
+                    Color lc = Level(history[history.Count - 1]);
+                    var gs = g.Save();
+                    using (var clip = Round(gr, 8 * s)) g.SetClip(clip);
+                    using (var b = new SolidBrush(Color.FromArgb(light ? 90 : 110, lc))) g.FillPolygon(b, area.ToArray());
+                    using (var pen = new Pen(lc, 1.6f * s) { LineJoin = LineJoin.Round }) g.DrawLines(pen, pts.ToArray());
+                    g.Restore(gs);
                 }
 
                 // ---------- lista de apps ----------
@@ -470,20 +506,18 @@ namespace MacDock
             return k.EndsWith("chrome.exe") || k.EndsWith("msedge.exe") || k.EndsWith("brave.exe") || k.EndsWith("firefox.exe") || k.EndsWith("opera.exe") || k.EndsWith("vivaldi.exe");
         }
 
-        float Legend(Graphics g, Font f, Color c, string label, string val, float x, float y)
-        {
-            using (var b = new SolidBrush(c)) g.FillEllipse(b, x, y + 4 * s, 8 * s, 8 * s);
-            string t = label + "  " + val;
-            Txt(g, t, f, Fg, x + 12 * s, y);
-            return x + 12 * s + g.MeasureString(t, f).Width + 14 * s;
-        }
-
         void Button(Graphics g, RectangleF r, string t, Font f, bool on, bool danger)
         {
             Color bg = !on ? (light ? Color.FromArgb(236, 236, 240) : Color.FromArgb(48, 48, 52)) : danger ? Color.FromArgb(255, 69, 58) : (light ? Color.White : Color.FromArgb(64, 64, 70));
             Color fg = !on ? Dim : danger ? Color.White : Fg;
             using (var p = Round(r, 7 * s)) { using (var b = new SolidBrush(bg)) g.FillPath(b, p); using (var pen = new Pen(Line)) g.DrawPath(pen, p); }
             using (var b = new SolidBrush(fg)) using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center }) g.DrawString(t, f, b, r, sf);
+        }
+
+        void Wrap(Graphics g, string t, Font f, Color c, float x, float y, float w)
+        {
+            if (string.IsNullOrEmpty(t)) return;
+            using (var b = new SolidBrush(c)) g.DrawString(t, f, b, new RectangleF(x, y, w, 1000));
         }
 
         void Txt(Graphics g, string t, Font f, Color c, float x, float y, float maxW = 0)
