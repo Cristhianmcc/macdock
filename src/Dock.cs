@@ -996,6 +996,7 @@ namespace MacDock
             ApplyRefresh();
             if (cfg.MenuBar) SetMenuBar(true);
             InitMacFeatures();
+            try { ClockEngine.Start(); } catch (Exception ex) { Program.Log(ex); }   // alarmas y temporizador del Reloj
             if (cfg.Widgets) global::MacDock.Widgets.Start(s, light);
             slow.Start();
             edge.Start();

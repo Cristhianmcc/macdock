@@ -75,7 +75,7 @@ Incluye además un **menú de ajustes** (un script de PowerShell) que cambia la 
 - **Ctrl + Alt + Tab** sigue abriendo el selector de Windows, y se puede apagar en Opciones del dock.
 
 ### 🧩 Widgets en el escritorio
-- **Reloj**, **calendario**, **batería**, **sistema** (procesador y memoria) y **notas**, con aspecto de vidrio, en modo claro u oscuro según Windows.
+- **Reloj**, **calendario**, **batería**, **sistema** (procesador y memoria), **notas**, **concentración** y **música**, con aspecto de vidrio, en modo claro u oscuro según Windows.
 - Viven **pegados al escritorio**: detrás de tus ventanas, y siguen ahí con Win + D.
 - **Arrástralos** a donde quieras (se acomodan alineados y recuerdan su lugar). Clic en Notas para escribir.
 - Clic derecho en un widget para quitarlo o agregar otros. También en Opciones del dock → Widgets en el escritorio.
@@ -84,8 +84,12 @@ Incluye además un **menú de ajustes** (un script de PowerShell) que cambia la 
 ### 🔔 Centro de Notificaciones (estilo Big Sur)
 - **Clic en la fecha y hora** de la barra superior: entra un panel desde la derecha con el día de hoy y los widgets (calendario, reloj, batería, sistema y notas).
 - **Música**: qué está sonando (Spotify, YouTube Music en el navegador, Apple Music, VLC…) con portada y controles, usando la API oficial de Windows. El Centro de Control usa lo mismo.
-- **Concentración (Pomodoro)**: 25 min de concentración y 5 de descanso (o 50/10, 15/3), descanso largo cada 4 rondas, aviso al terminar cada fase y, si quieres, "No molestar" mientras te concentras. También como widget del escritorio.
-- Botón para ver las notificaciones de Windows e interruptor de **No molestar**. Windows no deja que otros programas lean tus notificaciones, por eso no se muestran dentro.
+- **Concentración (Pomodoro)**: concentración, descanso y descanso largo, aviso al terminar cada fase y, si quieres, "No molestar" mientras te concentras. Clic en el widget para abrir su ventana: tiempos y rondas a tu gusto, **lista de tareas** (cada concentración terminada le suma un pomodoro a la tarea elegida) y cuántos llevas hoy.
+
+### ⏰ Reloj (como el de macOS Ventura)
+- Clic en el widget del reloj: **Reloj mundial** (ciudades con su hora y si allá ya es mañana), **Alarmas** (una vez, diario o lunes a viernes), **Cronómetro** con vueltas y **Temporizador**.
+- Las alarmas y el temporizador suenan aunque cierres la ventana, mientras MacDock esté abierto.
+- Botón para ver las notificaciones de Windows, **Configurar** (abre los ajustes de notificaciones de Windows, como en Mac) e interruptor de **No molestar**. Windows no deja que otros programas lean tus notificaciones, por eso no se muestran dentro.
 
 ### 📊 Monitor de Actividad (memoria por app)
 - Ve **qué app usa tu RAM**: los procesos se agrupan por app (Chrome = una fila aunque tenga 40 procesos) y los navegadores internos que usan WhatsApp, Claude o Teams se suman a su app.
@@ -225,6 +229,9 @@ El resultado queda en `dist\` y en `descargas\MacDock-Instalador.zip`.
 | `src/Launchpad.cs` | Launchpad: todas las apps a pantalla completa |
 | `src/AppSwitcher.cs` | El selector de apps estilo Cmd + Tab (Alt + Tab) |
 | `src/Widgets.cs` | Los widgets del escritorio (reloj, calendario, batería, sistema, notas) |
+| `src/MacWindow.cs` | Base de las ventanas estilo Mac (botones, tarjetas, pestañas) |
+| `src/FocusWindow.cs` | La ventana de Concentración con tareas |
+| `src/ClockApp.cs` | El Reloj: reloj mundial, alarmas, cronómetro y temporizador |
 | `src/NotificationCenter.cs` | Centro de Notificaciones (clic en la fecha) |
 | `src/ActivityMonitor.cs` | El Monitor de Actividad (memoria por app) |
 | `src/Wallpapers.cs` | Los fondos dibujados por código: aurora, universo pixel y ciudad neón |

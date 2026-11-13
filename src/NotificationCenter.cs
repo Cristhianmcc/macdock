@@ -34,7 +34,7 @@ namespace MacDock
         readonly float s; readonly bool light;
         readonly List<KeyValuePair<DesktopWidget, RectangleF>> widgets = new List<KeyValuePair<DesktopWidget, RectangleF>>();
         readonly Timer tick = new Timer { Interval = 1000 }, anim = new Timer { Interval = 12 };
-        RectangleF rNotif, rNotifBtn, rDnd;
+        RectangleF rNotif, rNotifBtn, rDnd, rNotifCfg;
         RectangleF rMusic, rPrev, rPlay, rNext;   // tarjeta de "que esta sonando"
         NowPlayingInfo music;
         bool dnd, closing; float slide;   // 0 = fuera de la pantalla, 1 = en su lugar
@@ -53,6 +53,7 @@ namespace MacDock
             rNotif = new RectangleF(pad, y, wide, 92 * s);
             rNotifBtn = new RectangleF(pad + 14 * s, rNotif.Bottom - 40 * s, 170 * s, 28 * s);
             rDnd = new RectangleF(rNotif.Right - 14 * s - 130 * s, rNotif.Bottom - 40 * s, 130 * s, 28 * s);
+            rNotifCfg = new RectangleF(rNotif.Right - 14 * s - 84 * s, rNotif.Y + 9 * s, 84 * s, 22 * s);
             y = rNotif.Bottom + gap;
             rMusic = new RectangleF(pad, y, wide, 84 * s);
             float bsz = 32 * s, by = rMusic.Y + (rMusic.Height - bsz) / 2;
@@ -156,6 +157,8 @@ namespace MacDock
                 // tarjeta de notificaciones
                 Card(g, rNotif, 18 * s);
                 g.DrawString("Notificaciones", fTitle, fgB, rNotif.X + 14 * s, rNotif.Y + 12 * s);
+                using (var sf = new StringFormat { Alignment = StringAlignment.Far, LineAlignment = StringAlignment.Center })
+                using (var ab = new SolidBrush(Color.FromArgb(10, 132, 255))) g.DrawString("Configurar", fSub, ab, rNotifCfg, sf);   // como Ajustes > Notificaciones de Mac
                 g.DrawString(dnd ? "No molestar está activado: tus apps no harán sonido." : "Tus avisos de apps están en el centro de Windows.", fSub, subB,
                              new RectangleF(rNotif.X + 14 * s, rNotif.Y + 31 * s, rNotif.Width - 28 * s, 18 * s), new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap });
                 Pill(g, rNotifBtn, "Ver notificaciones", false, fSub);
@@ -237,7 +240,7 @@ namespace MacDock
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            bool hand = rNotifBtn.Contains(e.Location) || rDnd.Contains(e.Location) || rPrev.Contains(e.Location) || rPlay.Contains(e.Location) || rNext.Contains(e.Location) || widgets.Any(kv => kv.Value.Contains(e.Location) && (kv.Key is SystemWidget || kv.Key is NotesWidget || kv.Key is CalendarWidget));
+            bool hand = rNotifBtn.Contains(e.Location) || rNotifCfg.Contains(e.Location) || rDnd.Contains(e.Location) || rPrev.Contains(e.Location) || rPlay.Contains(e.Location) || rNext.Contains(e.Location) || widgets.Any(kv => kv.Value.Contains(e.Location) && (kv.Key is SystemWidget || kv.Key is NotesWidget || kv.Key is CalendarWidget));
             Cursor = hand ? Cursors.Hand : Cursors.Default;
         }
 
@@ -254,6 +257,7 @@ namespace MacDock
             try
             {
                 if (rNotifBtn.Contains(e.Location)) { SlideOut(); N.PressKeys(0x5B, 0x4E); return; }   // Win + N
+                if (rNotifCfg.Contains(e.Location)) { SlideOut(); System.Diagnostics.Process.Start("ms-settings:notifications"); return; }
                 Action again = () => RefreshMusic();
                 if (rPlay.Contains(e.Location)) { if (music != null) { music.Playing = !music.Playing; Invalidate(); } NowPlaying.PlayPause(again); return; }
                 if (rPrev.Contains(e.Location)) { NowPlaying.Prev(again); return; }

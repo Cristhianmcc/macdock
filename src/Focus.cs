@@ -19,8 +19,8 @@ namespace MacDock
 
         public static Phase Current = Phase.Focus;
         public static bool Running;
-        public static int Round = 1;                     // 1..4
-        public static int FocusMin = 25, BreakMin = 5, LongMin = 15;
+        public static int Round = 1;                     // 1..Rounds
+        public static int FocusMin = 25, BreakMin = 5, LongMin = 15, Rounds = 4;   // Rounds: concentraciones antes del descanso largo
         public static bool SilenceWhileFocus;            // activar "No molestar" durante la concentracion
         static DateTime endsAt; static TimeSpan left = TimeSpan.FromMinutes(25);
         static Timer timer;
@@ -36,15 +36,17 @@ namespace MacDock
                 {
                     var p = File.ReadAllText(SettingsPath).Trim().Split(',');
                     if (p.Length >= 4) { FocusMin = int.Parse(p[0]); BreakMin = int.Parse(p[1]); LongMin = int.Parse(p[2]); SilenceWhileFocus = p[3] == "1"; }
+                    if (p.Length >= 5) Rounds = Math.Max(2, Math.Min(8, int.Parse(p[4])));
                 }
             }
             catch { }
             left = TimeSpan.FromMinutes(FocusMin);
+            LoadTasks(); LoadToday();
         }
 
         static void SaveSettings()
         {
-            try { Directory.CreateDirectory(Program.DataDir); File.WriteAllText(SettingsPath, FocusMin + "," + BreakMin + "," + LongMin + "," + (SilenceWhileFocus ? 1 : 0)); } catch { }
+            try { Directory.CreateDirectory(Program.DataDir); File.WriteAllText(SettingsPath, FocusMin + "," + BreakMin + "," + LongMin + "," + (SilenceWhileFocus ? 1 : 0) + "," + Rounds); } catch { }
         }
 
         public static TimeSpan Left { get { return Running ? (endsAt > DateTime.Now ? endsAt - DateTime.Now : TimeSpan.Zero) : left; } }
@@ -81,6 +83,79 @@ namespace MacDock
             if (!Running) left = Total;
         }
 
+        public static void SetRounds(int n) { Rounds = Math.Max(2, Math.Min(8, n)); if (Round > Rounds) Round = Rounds; SaveSettings(); }
+
+        // ---------- tareas: en que estas trabajando y cuantos pomodoros le has dedicado ----------
+        public class Task { public string Text = ""; public bool Done; public int Count; }
+        public static readonly System.Collections.Generic.List<Task> Tasks = new System.Collections.Generic.List<Task>();
+        public static Task CurrentTask;
+        public static int TodayCount;
+        static string todayDate = "";
+
+        static string TasksPath { get { return Path.Combine(Program.DataDir, "concentracion-tareas.txt"); } }
+        static string TodayPath { get { return Path.Combine(Program.DataDir, "concentracion-hoy.txt"); } }
+
+        static void LoadTasks()
+        {
+            try
+            {
+                if (!File.Exists(TasksPath)) return;
+                foreach (var line in File.ReadAllLines(TasksPath))
+                {
+                    var p = line.Split(new[] { '|' }, 4);
+                    if (p.Length < 4) continue;
+                    var t = new Task { Done = p[1] == "1", Count = int.Parse(p[2]), Text = p[3] };
+                    Tasks.Add(t);
+                    if (p[0] == "*") CurrentTask = t;
+                }
+            }
+            catch (Exception ex) { Program.Log(ex); }
+        }
+
+        public static void SaveTasks()
+        {
+            try
+            {
+                Directory.CreateDirectory(Program.DataDir);
+                var lines = new System.Collections.Generic.List<string>();
+                foreach (var t in Tasks) lines.Add((t == CurrentTask ? "*" : "-") + "|" + (t.Done ? 1 : 0) + "|" + t.Count + "|" + t.Text.Replace("\r", " ").Replace("\n", " "));
+                File.WriteAllLines(TasksPath, lines.ToArray());
+            }
+            catch (Exception ex) { Program.Log(ex); }
+        }
+
+        public static void AddTask(string text)
+        {
+            text = (text ?? "").Trim(); if (text == "") return;
+            var t = new Task { Text = text }; Tasks.Add(t);
+            if (CurrentTask == null || CurrentTask.Done) CurrentTask = t;
+            SaveTasks();
+        }
+        public static void RemoveTask(Task t) { Tasks.Remove(t); if (CurrentTask == t) CurrentTask = null; SaveTasks(); }
+        public static void ToggleDone(Task t)
+        {
+            t.Done = !t.Done;
+            if (t.Done && CurrentTask == t) { CurrentTask = null; foreach (var x in Tasks) if (!x.Done) { CurrentTask = x; break; } }
+            SaveTasks();
+        }
+        public static void SelectTask(Task t) { CurrentTask = CurrentTask == t ? null : t; SaveTasks(); }
+        public static void ClearDone() { Tasks.RemoveAll(t => t.Done); SaveTasks(); }
+
+        static void LoadToday()
+        {
+            todayDate = DateTime.Today.ToString("yyyy-MM-dd"); TodayCount = 0;
+            try { if (File.Exists(TodayPath)) { var p = File.ReadAllText(TodayPath).Trim().Split(','); if (p.Length == 2 && p[0] == todayDate) TodayCount = int.Parse(p[1]); } } catch { }
+        }
+        public static int Today { get { if (todayDate != DateTime.Today.ToString("yyyy-MM-dd")) LoadToday(); return TodayCount; } }
+
+        // una concentracion completa: suma al dia y a la tarea actual
+        static void CountPomodoro()
+        {
+            int n = Today + 1; TodayCount = n;
+            try { Directory.CreateDirectory(Program.DataDir); File.WriteAllText(TodayPath, todayDate + "," + n); } catch { }
+            if (CurrentTask != null) { CurrentTask.Count++; SaveTasks(); }
+        }
+
         public static void SetSilence(bool on) { SilenceWhileFocus = on; SaveSettings(); if (!on) Silence(false); else if (Running && Current == Phase.Focus) Silence(true); }
 
         static void Check()
@@ -94,7 +169,8 @@ namespace MacDock
         {
             var prev = Current;
             bool wasFocus = prev == Phase.Focus;
-            if (wasFocus) Current = Round >= 4 ? Phase.LongBreak : Phase.Break;
+            if (wasFocus && notify) CountPomodoro();
+            if (wasFocus) Current = Round >= Rounds ? Phase.LongBreak : Phase.Break;
             else { Current = Phase.Focus; Round = prev == Phase.LongBreak ? 1 : Round + 1; }
             left = Total;
             bool keepRunning = Running;
@@ -105,7 +181,7 @@ namespace MacDock
             {
                 try { SystemSounds.Asterisk.Play(); } catch { }
                 if (wasFocus) Banner.Show("¡Buen trabajo!", Current == Phase.LongBreak ? "Toma un descanso largo de " + LongMin + " minutos." : "Descansa " + BreakMin + " minutos.");
-                else Banner.Show("A concentrarse", "Ronda " + Round + " de 4: " + FocusMin + " minutos.");
+                else Banner.Show("A concentrarse", "Ronda " + Round + " de " + Rounds + ": " + FocusMin + " minutos" + (CurrentTask != null ? " en " + CurrentTask.Text : "") + ".");
             }
         }
 
@@ -204,7 +280,7 @@ namespace MacDock
         {
             if (rPlay.Contains(p)) FocusTimer.Toggle();
             else if (rReset.Contains(p)) FocusTimer.Reset();
-            else return;
+            else { FocusWindow.Open(); return; }   // clic en el resto: abre la ventana con tiempos y tareas
             Redraw(true);
         }
 
@@ -215,7 +291,7 @@ namespace MacDock
             Color accent = brk ? Green : Color.FromArgb(255, 99, 71);
             using (var b = new SolidBrush(accent)) g.FillEllipse(b, r.X + pad, r.Y + pad + 4 * s, 8 * s, 8 * s);
             using (var f = F(12f, true)) Txt(g, FocusTimer.PhaseName, f, Fg, new RectangleF(r.X + pad + 13 * s, r.Y + pad - 2 * s, r.Width - pad * 2 - 40 * s, 18 * s));
-            using (var f = F(10.5f)) Txt(g, FocusTimer.Round + "/4", f, Dim, new RectangleF(r.Right - pad - 30 * s, r.Y + pad - 1 * s, 30 * s, 16 * s), StringAlignment.Far);
+            using (var f = F(10.5f)) Txt(g, FocusTimer.Round + "/" + FocusTimer.Rounds, f, Dim, new RectangleF(r.Right - pad - 30 * s, r.Y + pad - 1 * s, 30 * s, 16 * s), StringAlignment.Far);
 
             var c = new PointF(r.X + r.Width / 2f, r.Y + r.Height * 0.48f);
             float R = r.Width * 0.25f;

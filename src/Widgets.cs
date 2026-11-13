@@ -18,7 +18,7 @@ namespace MacDock
     // No usan internet. Cada uno se redibuja solo cuando cambia lo que muestra.
     static class Widgets
     {
-        public static readonly string[] Kinds = { "clock", "calendar", "battery", "system", "notes", "focus" };
+        public static readonly string[] Kinds = { "clock", "calendar", "battery", "system", "notes", "focus", "music" };
         static readonly string[] DefaultOn = { "clock", "battery", "calendar", "system" };
 
         public static string NameOf(string kind)
@@ -31,6 +31,7 @@ namespace MacDock
                 case "system": return "Sistema (CPU y RAM)";
                 case "notes": return "Notas";
                 case "focus": return "Concentración (Pomodoro)";
+                case "music": return "Música";
             }
             return kind;
         }
@@ -116,6 +117,7 @@ namespace MacDock
                 case "system": w = new SystemWidget(); break;
                 case "notes": w = new NotesWidget(); break;
                 case "focus": w = new FocusWidget(); break;
+                case "music": w = new MusicWidget(); break;
                 default: return;
             }
             w.Init(kind, s, light);
@@ -140,6 +142,7 @@ namespace MacDock
                 case "system": return new Point(x0, y0 + (small + gap) * 2);
                 case "notes": return new Point(x0 + small + gap, y0 + (small + gap) * 2);
                 case "focus": return new Point(x0, y0 + (small + gap) * 3);
+                case "music": return new Point(x0 + small + gap, y0 + (small + gap) * 3);
             }
             return new Point(x0, y0);
         }
@@ -194,10 +197,13 @@ namespace MacDock
         {
             var m = MenuStyle.New(light);
             Action<string, Action> add = (text, act) => { var mi = new ToolStripMenuItem(text); mi.Click += (o, e) => { try { act(); } catch (Exception ex) { Program.Log(ex); } }; m.Items.Add(mi); };
+            if (w is ClockWidget) { add("Abrir Reloj…", ClockApp.Open); m.Items.Add(new ToolStripSeparator()); }
+            if (w is MusicWidget) { add("Anterior", () => NowPlaying.Prev(null)); add("Reproducir / pausar", () => NowPlaying.PlayPause(null)); add("Siguiente", () => NowPlaying.Next(null)); m.Items.Add(new ToolStripSeparator()); }
             if (w is NotesWidget) { add("Editar nota", ((NotesWidget)w).Edit); m.Items.Add(new ToolStripSeparator()); }
             if (w is FocusWidget)
             {
                 Action redraw = () => w.SetTheme(light);
+                add("Abrir Concentración…", FocusWindow.Open);
                 add(FocusTimer.Running ? "Pausar" : "Iniciar", () => { FocusTimer.Toggle(); redraw(); });
                 add("Saltar a " + (FocusTimer.Current == FocusTimer.Phase.Focus ? "descanso" : "concentración"), () => { FocusTimer.Skip(); redraw(); });
                 add("Reiniciar", () => { FocusTimer.Reset(); redraw(); });
@@ -284,6 +290,7 @@ namespace MacDock
                 case "system": w = new SystemWidget(); break;
                 case "notes": w = new NotesWidget(); break;
                 case "focus": w = new FocusWidget(); break;
+                case "music": w = new MusicWidget(); break;
                 default: return null;
             }
             w.Init(kind, scale, lightTheme);
@@ -453,6 +460,7 @@ namespace MacDock
     {
         protected override int RefreshMs { get { return 1000; } }
         protected override string StateKey() { return DateTime.Now.ToString("HH:mm:ss"); }
+        protected override void OnClickCard() { ClockApp.Open(); }   // clic: alarmas, cronometro, temporizador y reloj mundial
 
         protected override void DrawContent(Graphics g, RectangleF r)
         {
@@ -656,6 +664,77 @@ namespace MacDock
         }
 
         static string Cap(string t) { return t.Length == 0 ? t : char.ToUpperInvariant(t[0]) + t.Substring(1); }
+    }
+
+    // ===================== musica: portada, cancion y controles =====================
+    class MusicWidget : DesktopWidget
+    {
+        protected override int RefreshMs { get { return 2000; } }
+        RectangleF rPrev, rPlay, rNext, rArt;   // relativos a la tarjeta
+
+        protected override string StateKey()
+        {
+            NowPlaying.Refresh(null);   // pide lo actual; llega para la siguiente vuelta
+            var m = NowPlaying.Last;
+            return m == null ? "" : m.Key;
+        }
+
+        protected override void OnClickAt(PointF p)
+        {
+            var m = NowPlaying.Last;
+            Action again = () => { try { BeginInvoke(new Action(() => Redraw(true))); } catch { } };
+            if (rPlay.Contains(p)) { if (m != null) m.Playing = !m.Playing; NowPlaying.PlayPause(again); Redraw(true); }
+            else if (rPrev.Contains(p)) NowPlaying.Prev(again);
+            else if (rNext.Contains(p)) NowPlaying.Next(again);
+            else if (rArt.Contains(p) && m != null && m.AppId != "") OpenPlayer(m.AppId);
+        }
+
+        // clic en la portada: abre la app que esta sonando
+        static void OpenPlayer(string appId)
+        {
+            try
+            {
+                if (appId.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (var pr in System.Diagnostics.Process.GetProcessesByName(Path.GetFileNameWithoutExtension(appId)))
+                        using (pr) if (pr.MainWindowHandle != IntPtr.Zero) { if (N.IsIconic(pr.MainWindowHandle)) N.ShowWindow(pr.MainWindowHandle, 9); N.SetForegroundWindow(pr.MainWindowHandle); return; }
+                }
+                else System.Diagnostics.Process.Start("explorer.exe", "\"" + Shell.AppsFolderPath(appId) + "\"");
+            }
+            catch (Exception ex) { Program.Log(ex); }
+        }
+
+        protected override void DrawContent(Graphics g, RectangleF r)
+        {
+            var m = NowPlaying.Last;
+            bool has = m != null && m.HasSession && m.Title != "";
+            float pad = 14 * s;
+            var art = new RectangleF(r.X + pad, r.Y + pad, 58 * s, 58 * s);
+            rArt = new RectangleF(art.X - r.X, art.Y - r.Y, art.Width, art.Height);
+            using (var p = Round(art, 10 * s))
+            {
+                if (has && m.Art != null) { var st = g.Save(); g.SetClip(p); g.DrawImage(m.Art, art); g.Restore(st); }
+                else
+                {
+                    using (var b = new SolidBrush(light ? Color.FromArgb(30, 0, 0, 0) : Color.FromArgb(40, 255, 255, 255))) g.FillPath(b, p);
+                    if (has && m.AppIcon != null) g.DrawImage(m.AppIcon, RectangleF.Inflate(art, -15 * s, -15 * s));
+                    else using (var f = new Font("Segoe MDL2 Assets", 20f * s, FontStyle.Regular, GraphicsUnit.Pixel)) Txt(g, "\uE8D6", f, Dim, art, StringAlignment.Center, StringAlignment.Center);
+                }
+            }
+            if (has && m.AppIcon != null && m.Art != null) g.DrawImage(m.AppIcon, new RectangleF(art.Right - 16 * s, art.Y + 4 * s, 13 * s, 13 * s));
+            using (var f = F(12.5f, true)) Txt(g, has ? m.Title : "Nada sonando", f, Fg, new RectangleF(r.X + pad, art.Bottom + 8 * s, r.Width - pad * 2, 18 * s));
+            using (var f = F(11f)) Txt(g, has ? (m.Artist != "" ? m.Artist : m.App) : "Pon algo en Spotify o YouTube", f, Dim, new RectangleF(r.X + pad, art.Bottom + 26 * s, r.Width - pad * 2, 16 * s));
+            float bs = 26 * s, by = r.Bottom - pad - bs + 4 * s, cx = r.X + r.Width / 2;
+            var prev = new RectangleF(cx - bs * 1.5f - 6 * s, by, bs, bs); var play = new RectangleF(cx - bs / 2, by, bs, bs); var next = new RectangleF(cx + bs / 2 + 6 * s, by, bs, bs);
+            rPrev = new RectangleF(prev.X - r.X, prev.Y - r.Y, bs, bs); rPlay = new RectangleF(play.X - r.X, play.Y - r.Y, bs, bs); rNext = new RectangleF(next.X - r.X, next.Y - r.Y, bs, bs);
+            using (var f = new Font("Segoe MDL2 Assets", 11f * s, FontStyle.Regular, GraphicsUnit.Pixel))
+            {
+                Txt(g, "\uE892", f, has ? Fg : Dim, prev, StringAlignment.Center, StringAlignment.Center);
+                using (var b = new SolidBrush(has ? Fg : Dim)) g.FillEllipse(b, play);
+                Txt(g, has && m.Playing ? "\uE769" : "\uE768", f, light ? Color.White : Color.FromArgb(30, 30, 34), play, StringAlignment.Center, StringAlignment.Center);
+                Txt(g, "\uE893", f, has ? Fg : Dim, next, StringAlignment.Center, StringAlignment.Center);
+            }
+        }
     }
 
     // ===================== bateria =====================

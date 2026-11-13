@@ -108,6 +108,11 @@ NUEVO EN 3.9
     que aparecen "en dos pasos"; ademas se reparan solos si alguno se queda sin botones.
   - MUSICA en el Centro de Notificaciones y de Control: cancion, artista, portada y controles reales.
   - CONCENTRACION (Pomodoro): widget con 25/5 (o 50/10, 15/3), aviso al terminar, No molestar opcional.
+    Clic en el widget: ventana con tiempos y rondas a tu gusto, lista de tareas y pomodoros de hoy.
+  - RELOJ: clic en el widget del reloj. Reloj mundial, alarmas, cronometro y temporizador
+    (suenan aunque cierres la ventana).
+  - WIDGET DE MUSICA para el escritorio: portada, cancion y controles; clic en la portada abre la app.
+  - Centro de Notificaciones: boton "Configurar" que abre los ajustes de notificaciones de Windows.
   - CENTRO DE NOTIFICACIONES: clic en la fecha de la barra superior. Widgets, No molestar y boton a las de Windows.
   - MONITOR DE ACTIVIDAD: que app usa tu RAM, agrupado por app, con presion de memoria. Menu del dock,
     Launchpad, Spotlight o clic en el widget de Sistema.
