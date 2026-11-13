@@ -261,13 +261,15 @@ namespace MacDock
         readonly Dictionary<string, Bitmap> icons = new Dictionary<string, Bitmap>(StringComparer.OrdinalIgnoreCase);
         string selKey; int scroll;
         readonly List<KeyValuePair<RectangleF, string>> rowHits = new List<KeyValuePair<RectangleF, string>>();
-        RectangleF btnClose, btnKill;
+        RectangleF btnClose, btnKill, searchRect;
+        readonly MacChrome chrome;   // barra de Mac con los tres circulos
 
         ActivityMonitor(bool lightTheme, float scale)
         {
             light = lightTheme; s = scale;
             Text = "Monitor de Actividad"; StartPosition = FormStartPosition.CenterScreen; DoubleBuffered = true; KeyPreview = true;
-            ClientSize = new Size((int)(860 * s), (int)(640 * s)); MinimumSize = new Size((int)(640 * s), (int)(480 * s));
+            var wa = Screen.PrimaryScreen.WorkingArea;
+            Size = new Size(Math.Min((int)(860 * s), wa.Width - 20), Math.Min((int)(640 * s), wa.Height - 20)); MinimumSize = new Size((int)(640 * s), (int)(480 * s));
             BackColor = light ? Color.FromArgb(246, 246, 248) : Color.FromArgb(30, 30, 33);
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             search = new TextBox
@@ -277,6 +279,7 @@ namespace MacDock
             };
             search.TextChanged += (o, e) => { scroll = 0; Invalidate(); };
             Controls.Add(search);
+            chrome = new MacChrome(this, light, s, () => 16 * s + 36 * s, p => searchRect.Contains(p));
             timer.Tick += (o, e) => Refresh2();
             MouseWheel += (o, e) => { scroll = Math.Max(0, scroll - Math.Sign(e.Delta) * (int)(34 * s) * 3); Invalidate(); };
         }
@@ -332,8 +335,11 @@ namespace MacDock
             using (var fb = new Font(UiFont.Semi, 13f * s, FontStyle.Regular, GraphicsUnit.Pixel))
             {
                 // encabezado y buscador
-                Txt(g, "Memoria", fTitle, Fg, pad, pad - 2 * s);
+                // la fila de arriba es la barra de la ventana: circulos, titulo y buscador (como en Mac)
+                chrome.Draw(g);
+                Txt(g, "Memoria", fTitle, Fg, chrome.LightsRight + 18 * s, pad - 2 * s);
                 var sr = new RectangleF(W - pad - 220 * s, pad - 4 * s, 220 * s, 28 * s);
+                searchRect = sr;
                 using (var p = Round(sr, 8 * s)) using (var b = new SolidBrush(search.BackColor)) g.FillPath(b, p);
                 using (var pen = new Pen(Dim, 1.5f * s))   // lupa
                 {
