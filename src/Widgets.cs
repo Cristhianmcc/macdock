@@ -228,6 +228,9 @@ namespace MacDock
         protected virtual void OnClickCard() { }
         // clic con la posicion dentro de la tarjeta (0,0 = esquina de la tarjeta); por defecto, clic normal
         protected virtual void OnClickAt(PointF p) { OnClickCard(); }
+        protected virtual void OnWheelAt(PointF p, int delta) { }
+        public void Wheel(PointF inCard, int delta) { OnWheelAt(inCard, delta); }
+        protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); OnWheelAt(new PointF(e.X - ShadowM, e.Y - ShadowM), e.Delta); }
         bool embedded;   // dibujado dentro del Centro de Notificaciones: no tiene ventana propia
 
         public Size CardSize { get { int sm = (int)(SmallPx * s); return new Size(Wide ? sm * 2 + (int)(GapPx * s) : sm, sm); } }
@@ -465,7 +468,11 @@ namespace MacDock
         }
     }
 
-    // ===================== calendario (mediano): el dia de hoy y el mes =====================
+    // ===================== calendario (mediano) =====================
+    // Izquierda: el dia elegido (o hoy). Derecha: tres vistas, como el selector de fechas de Mac/iPhone:
+    //   dias  -> clic en "Noviembre 2026" -> meses del año -> clic en "2026" -> años (de 12 en 12).
+    // Clic en un dia lo elige; flechas o rueda del mouse cambian de mes/año/decada; "Hoy" regresa.
+    // Si no lo tocas en unos minutos, vuelve solo a hoy.
     class CalendarWidget : DesktopWidget
     {
         static readonly string[] Days = { "domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado" };
@@ -473,83 +480,153 @@ namespace MacDock
         static readonly string[] Months = { "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre" };
 
         protected override bool Wide { get { return true; } }
-        protected override int RefreshMs { get { return 60000; } }
-        int offset;                              // meses hacia adelante (+) o atras (-) desde el actual
-        DateTime offsetAt = DateTime.MinValue;   // pasado un rato sin tocarlo, regresa solo al mes de hoy
-        RectangleF rPrev, rNext, rTitle;         // relativos a la esquina de la tarjeta
+        protected override int RefreshMs { get { return 30000; } }
+
+        enum View { Days, Months, Years }
+        View view = View.Days;
+        DateTime month = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);   // mes que se ve
+        DateTime? picked;                                                             // dia elegido (null = hoy)
+        DateTime touchedAt = DateTime.MinValue;
+        readonly List<KeyValuePair<RectangleF, Action>> hits = new List<KeyValuePair<RectangleF, Action>>();   // relativos a la tarjeta
+
+        DateTime Selected { get { return picked ?? DateTime.Today; } }
+        static readonly Color Accent = Color.FromArgb(10, 132, 255);
 
         protected override string StateKey()
         {
-            if (offset != 0 && (DateTime.Now - offsetAt).TotalMinutes > 3) offset = 0;
-            return DateTime.Today.ToString("yyyyMMdd") + "|" + offset;
+            if (touchedAt != DateTime.MinValue && (DateTime.Now - touchedAt).TotalMinutes > 3) GoToday();
+            return DateTime.Today.ToString("yyyyMMdd") + "|" + view + "|" + month.ToString("yyyyMM") + "|" + (picked.HasValue ? picked.Value.ToString("yyyyMMdd") : "");
         }
 
-        // ‹ y › cambian de mes; clic en el nombre del mes regresa a hoy
+        void GoToday() { view = View.Days; picked = null; month = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1); touchedAt = DateTime.MinValue; }
+        void Touch() { touchedAt = DateTime.Now; Redraw(true); }
+
         protected override void OnClickAt(PointF p)
         {
-            if (rPrev.Contains(p)) offset--;
-            else if (rNext.Contains(p)) offset++;
-            else if (rTitle.Contains(p)) offset = 0;
-            else return;
-            offsetAt = DateTime.Now;
-            Redraw(true);
+            for (int i = hits.Count - 1; i >= 0; i--)
+                if (hits[i].Key.Contains(p)) { hits[i].Value(); Touch(); return; }
         }
+
+        protected override void OnWheelAt(PointF p, int delta) { Step(delta > 0 ? -1 : 1); Touch(); }
+
+        // flechas y rueda: un mes, un año o 12 años segun la vista
+        void Step(int dir)
+        {
+            if (view == View.Days) month = month.AddMonths(dir);
+            else if (view == View.Months) month = month.AddYears(dir);
+            else month = month.AddYears(dir * 12);
+            if (month.Year < 1901) month = new DateTime(1901, month.Month, 1);
+            if (month.Year > 2199) month = new DateTime(2199, month.Month, 1);
+        }
+
+        void Hit(RectangleF abs, RectangleF card, Action a) { hits.Add(new KeyValuePair<RectangleF, Action>(new RectangleF(abs.X - card.X, abs.Y - card.Y, abs.Width, abs.Height), a)); }
 
         protected override void DrawContent(Graphics g, RectangleF r)
         {
-            var today = DateTime.Today;
+            hits.Clear();
+            var today = DateTime.Today; var sel = Selected;
             float pad = 16 * s;
-            // izquierda: dia de la semana, numero grande, mes
-            var left = new RectangleF(r.X + pad, r.Y + pad, r.Width * 0.36f, r.Height - pad * 2);
-            using (var f = F(12f, true)) Txt(g, Days[(int)today.DayOfWeek].ToUpperInvariant(), f, Red, new RectangleF(left.X, left.Y, left.Width, 18 * s));
-            using (var f = F(54f)) Txt(g, today.Day.ToString(), f, Fg, new RectangleF(left.X - 3 * s, left.Y + 14 * s, left.Width + 10 * s, 66 * s));
-            using (var f = F(13f, true)) Txt(g, Cap(Months[today.Month - 1]), f, Fg, new RectangleF(left.X, left.Bottom - 34 * s, left.Width, 18 * s));
-            using (var f = F(12f)) Txt(g, today.Year.ToString(), f, Dim, new RectangleF(left.X, left.Bottom - 17 * s, left.Width, 18 * s));
 
-            // derecha: "‹  Diciembre 2026  ›" y la cuadricula de ese mes
-            int first = (int)CultureInfo.CurrentCulture.DateTimeFormat.FirstDayOfWeek;
-            var right = new RectangleF(r.X + r.Width * 0.42f, r.Y + pad - 6 * s, r.Width * 0.58f - pad + 4 * s, r.Height - pad * 2 + 10 * s);
-            var month1 = new DateTime(today.Year, today.Month, 1).AddMonths(offset);
-            int lead = ((int)month1.DayOfWeek - first + 7) % 7;
-            int daysIn = DateTime.DaysInMonth(month1.Year, month1.Month);
-            int rowsNeeded = (lead + daysIn + 6) / 7;
-            float cw = right.Width / 7f, ch = right.Height / (rowsNeeded + 2);
-
-            var head = new RectangleF(right.X, right.Y, right.Width, ch);
-            rPrev = new RectangleF(head.X - r.X, head.Y - r.Y - 2 * s, cw * 1.2f, ch + 4 * s);
-            rNext = new RectangleF(head.Right - cw * 1.2f - r.X, head.Y - r.Y - 2 * s, cw * 1.2f, ch + 4 * s);
-            rTitle = new RectangleF(head.X + cw * 1.2f - r.X, head.Y - r.Y, head.Width - cw * 2.4f, ch);
-            using (var fa = F(14f, true))
+            // ---- izquierda: el dia elegido ----
+            var left = new RectangleF(r.X + pad, r.Y + pad, r.Width * 0.34f, r.Height - pad * 2);
+            bool isToday = sel == today;
+            using (var f = F(12f, true)) Txt(g, Days[(int)sel.DayOfWeek].ToUpperInvariant(), f, isToday ? Red : Accent, new RectangleF(left.X, left.Y, left.Width, 18 * s));
+            using (var f = F(54f)) Txt(g, sel.Day.ToString(), f, Fg, new RectangleF(left.X - 3 * s, left.Y + 14 * s, left.Width + 10 * s, 66 * s));
+            using (var f = F(13f, true)) Txt(g, Cap(Months[sel.Month - 1]) + " " + sel.Year, f, Fg, new RectangleF(left.X, left.Bottom - (isToday ? 18 : 40) * s, left.Width + 6 * s, 18 * s));
+            if (!isToday)
             {
-                Txt(g, "\u2039", fa, Fg, new RectangleF(head.X, head.Y - 2 * s, cw * 1.2f, ch + 2 * s), StringAlignment.Center, StringAlignment.Center);
-                Txt(g, "\u203A", fa, Fg, new RectangleF(head.Right - cw * 1.2f, head.Y - 2 * s, cw * 1.2f, ch + 2 * s), StringAlignment.Center, StringAlignment.Center);
+                var hb = new RectangleF(left.X, left.Bottom - 20 * s, 54 * s, 20 * s);
+                using (var p = Round(hb, 10 * s)) using (var b = new SolidBrush(Color.FromArgb(light ? 30 : 55, Accent))) g.FillPath(b, p);
+                using (var f = F(11f, true)) Txt(g, "Hoy", f, Accent, hb, StringAlignment.Center, StringAlignment.Center);
+                Hit(hb, r, GoToday);
             }
-            using (var fm = F(11f, true))
-                Txt(g, Cap(Months[month1.Month - 1]) + (month1.Year != today.Year ? " " + month1.Year : ""), fm, offset == 0 ? Fg : Red,
-                    new RectangleF(head.X + cw * 1.2f, head.Y, head.Width - cw * 2.4f, ch), StringAlignment.Center, StringAlignment.Center);
 
-            using (var fh = F(10f, true))
+            // ---- derecha: cabecera con flechas y titulo (el titulo cambia de vista) ----
+            var right = new RectangleF(r.X + r.Width * 0.40f, r.Y + pad - 8 * s, r.Width * 0.60f - pad + 6 * s, r.Height - pad * 2 + 14 * s);
+            float headH = 22 * s;
+            var head = new RectangleF(right.X, right.Y, right.Width, headH);
+            var rPrev = new RectangleF(head.X, head.Y, 26 * s, headH);
+            var rNext = new RectangleF(head.Right - 26 * s, head.Y, 26 * s, headH);
+            var rTitle = new RectangleF(rPrev.Right, head.Y, head.Width - 52 * s, headH);
+            string title = view == View.Days ? Cap(Months[month.Month - 1]) + " " + month.Year
+                         : view == View.Months ? month.Year.ToString()
+                         : (month.Year / 12 * 12) + " – " + (month.Year / 12 * 12 + 11);
+            using (var fa = F(16f, true))
+            {
+                Txt(g, "\u2039", fa, Fg, rPrev, StringAlignment.Center, StringAlignment.Center);
+                Txt(g, "\u203A", fa, Fg, rNext, StringAlignment.Center, StringAlignment.Center);
+            }
+            using (var ft = F(12.5f, true))
+            {
+                var tw = g.MeasureString(title + (view == View.Years ? "" : " \u25BE"), ft).Width;
+                var tbg = new RectangleF(rTitle.X + (rTitle.Width - tw) / 2 - 6 * s, rTitle.Y + 1 * s, tw + 12 * s, headH - 2 * s);
+                using (var p = Round(tbg, 7 * s)) using (var b = new SolidBrush(light ? Color.FromArgb(14, 0, 0, 0) : Color.FromArgb(22, 255, 255, 255))) g.FillPath(b, p);
+                Txt(g, title + (view == View.Years ? "" : " \u25BE"), ft, Fg, rTitle, StringAlignment.Center, StringAlignment.Center);
+                if (view != View.Years) Hit(tbg, r, () => { view = view == View.Days ? View.Months : View.Years; });
+            }
+            Hit(rPrev, r, () => Step(-1));
+            Hit(rNext, r, () => Step(1));
+
+            var body = new RectangleF(right.X, head.Bottom + 3 * s, right.Width, right.Bottom - head.Bottom - 3 * s);
+            if (view == View.Days) DrawDays(g, r, body, today, sel);
+            else if (view == View.Months) DrawGrid(g, r, body, 12, i => Cap(Months[i].Substring(0, 3)),
+                     i => month.Year == today.Year && i == today.Month - 1, i => month.Year == sel.Year && i == sel.Month - 1,
+                     i => { month = new DateTime(month.Year, i + 1, 1); view = View.Days; });
+            else
+            {
+                int y0 = month.Year / 12 * 12;
+                DrawGrid(g, r, body, 12, i => (y0 + i).ToString(), i => y0 + i == today.Year, i => y0 + i == sel.Year,
+                         i => { month = new DateTime(y0 + i, month.Month, 1); view = View.Months; });
+            }
+        }
+
+        void DrawDays(Graphics g, RectangleF card, RectangleF body, DateTime today, DateTime sel)
+        {
+            int first = (int)CultureInfo.CurrentCulture.DateTimeFormat.FirstDayOfWeek;
+            int lead = ((int)month.DayOfWeek - first + 7) % 7;
+            var start = month.AddDays(-lead);                // siempre 6 semanas: la cuadricula no brinca de tamano
+            float cw = body.Width / 7f, ch = body.Height / 7f;
+            using (var fh = F(9.5f, true))
                 for (int i = 0; i < 7; i++)
                 {
                     int dow = (first + i) % 7;
-                    Txt(g, Ini[dow], fh, dow == 0 || dow == 6 ? Dim : Fg, new RectangleF(right.X + i * cw, right.Y + ch, cw, ch), StringAlignment.Center, StringAlignment.Center);
+                    Txt(g, Ini[dow], fh, Dim, new RectangleF(body.X + i * cw, body.Y, cw, ch), StringAlignment.Center, StringAlignment.Center);
                 }
-            bool thisMonth = month1.Year == today.Year && month1.Month == today.Month;
-            using (var fd = F(rowsNeeded > 5 ? 10f : 11f))
-            using (var ft = F(rowsNeeded > 5 ? 10f : 11f, true))
-                for (int d = 1; d <= daysIn; d++)
+            using (var fd = F(10.5f))
+            using (var fb = F(10.5f, true))
+                for (int k = 0; k < 42; k++)
                 {
-                    int cell = lead + d - 1;
-                    var cr = new RectangleF(right.X + (cell % 7) * cw, right.Y + (cell / 7 + 2) * ch, cw, ch);
-                    bool isToday = thisMonth && d == today.Day;
-                    if (isToday)
+                    var d = start.AddDays(k);
+                    var cr = new RectangleF(body.X + (k % 7) * cw, body.Y + (k / 7 + 1) * ch, cw, ch);
+                    bool inMonth = d.Month == month.Month, isT = d == today, isS = d == sel && picked.HasValue;
+                    if (isS)
                     {
-                        float dd = Math.Min(cw, ch) * 0.92f;
-                        using (var b = new SolidBrush(Red)) g.FillEllipse(b, cr.X + (cw - dd) / 2, cr.Y + (ch - dd) / 2, dd, dd);
+                        // elegido: cuadrito redondeado suave (rojo si ademas es hoy)
+                        var hr = RectangleF.Inflate(cr, -1.5f * s, -0.5f * s);
+                        using (var p = Round(hr, 5 * s)) using (var b = new SolidBrush(isT ? Red : Accent)) g.FillPath(b, p);
                     }
-                    var dow = (DayOfWeek)((first + cell) % 7);
-                    Color col = isToday ? Color.White : (dow == DayOfWeek.Sunday || dow == DayOfWeek.Saturday ? Dim : Fg);
-                    Txt(g, d.ToString(), isToday ? ft : fd, col, cr, StringAlignment.Center, StringAlignment.Center);
+                    Color col = isS ? Color.White : isT ? Red : !inMonth ? Color.FromArgb(light ? 70 : 80, Fg) : Fg;
+                    Txt(g, d.Day.ToString(), isT || isS ? fb : fd, col, cr, StringAlignment.Center, StringAlignment.Center);
+                    if (isT && !isS)   // hoy: numero en rojo y un puntito debajo
+                        using (var b = new SolidBrush(Red)) g.FillEllipse(b, cr.X + cw / 2 - 1.6f * s, cr.Bottom - 3.6f * s, 3.2f * s, 3.2f * s);
+                    var day = d;
+                    Hit(cr, card, () => { picked = day == DateTime.Today ? (DateTime?)null : day; if (day.Month != month.Month || day.Year != month.Year) month = new DateTime(day.Year, day.Month, 1); });
+                }
+        }
+
+        // cuadricula de 4 x 3 para meses o años
+        void DrawGrid(Graphics g, RectangleF card, RectangleF body, int n, Func<int, string> label, Func<int, bool> isNow, Func<int, bool> isSel, Action<int> pick)
+        {
+            float cw = body.Width / 4f, ch = body.Height / 3f;
+            using (var f = F(12f)) using (var fb = F(12f, true))
+                for (int i = 0; i < n; i++)
+                {
+                    var cr = RectangleF.Inflate(new RectangleF(body.X + (i % 4) * cw, body.Y + (i / 4) * ch, cw, ch), -3 * s, -3 * s);
+                    bool now = isNow(i), sl = isSel(i);
+                    if (sl) using (var p = Round(cr, 8 * s)) using (var b = new SolidBrush(Color.FromArgb(light ? 34 : 60, Accent))) g.FillPath(b, p);
+                    Txt(g, label(i), now || sl ? fb : f, now ? Red : Fg, cr, StringAlignment.Center, StringAlignment.Center);
+                    int idx = i;
+                    Hit(cr, card, () => pick(idx));
                 }
         }
 

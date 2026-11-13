@@ -174,6 +174,13 @@ namespace MacDock
             Cursor = hand ? Cursors.Hand : Cursors.Default;
         }
 
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            base.OnMouseWheel(e);
+            foreach (var kv in widgets)
+                if (kv.Value.Contains(e.Location)) { kv.Key.Wheel(new PointF(e.X - kv.Value.X, e.Y - kv.Value.Y), e.Delta); Invalidate(); return; }
+        }
+
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
