@@ -339,6 +339,12 @@ namespace MacDock
                 else
                 {
                     key = path; iconPath = path;
+                    string appId = Shell.AppIdOf(pid);
+                    if (appId != "")   // app empaquetada (WhatsApp, Claude...): icono y nombre de la Tienda
+                    {
+                        iconPath = Shell.AppsFolderPath(appId);
+                        name = AppIndex.NameForAppId(appId);
+                    }
                 }
 
                 AppGroup grp;

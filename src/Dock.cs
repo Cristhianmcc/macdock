@@ -19,6 +19,7 @@ namespace MacDock
     class DockItem
     {
         public Kind Kind; public string Name = ""; public string Lnk; public string Target = ""; public string Args = "";
+        public string AppId;   // apps de la Tienda / empaquetadas: se abren y toman su icono de "shell:AppsFolder\<AppId>"
         public Bitmap Icon; public bool Pinned; public bool IsExplorer;
         public List<IntPtr> Windows = new List<IntPtr>();
         public DateTime LaunchAt = DateTime.MinValue;
@@ -697,6 +698,7 @@ namespace MacDock
                         case Kind.Stack: FileOps.Drop(Handle, files, it.Target, mods); break;
                         case Kind.App:
                             if (it.IsExplorer) { Finder.OpenOrFocus(light, s, Directory.Exists(files[0]) ? files[0] : Path.GetDirectoryName(files[0])); break; }
+                            if (it.AppId != null) { Launch(it); break; }   // las apps de la Tienda no reciben archivos por linea de comandos
                             string args = string.Join(" ", files.Select(f => "\"" + f + "\"").ToArray());
                             if (!string.IsNullOrEmpty(it.Args)) args = it.Args + " " + args;
                             Process.Start(new ProcessStartInfo(it.Target, args) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(it.Target) });
@@ -1033,10 +1035,13 @@ namespace MacDock
                 var it = new DockItem { Kind = Kind.App, Lnk = f, Pinned = true, Name = Path.GetFileNameWithoutExtension(f) };
                 Shell.ReadLnk(f, out it.Target, out it.Args);
                 string n = it.Name.ToLowerInvariant();
-                it.IsExplorer = it.Target.ToLowerInvariant().EndsWith("\\explorer.exe") ||
-                                (it.Target == "" && (n.Contains("explorer") || n.Contains("explorador")));
+                const string appsPrefix = @"shell:AppsFolder\";
+                string argsTrim = (it.Args ?? "").Trim().Trim('"');
+                if (argsTrim.StartsWith(appsPrefix, StringComparison.OrdinalIgnoreCase)) it.AppId = argsTrim.Substring(appsPrefix.Length);
+                it.IsExplorer = it.AppId == null && (it.Target.ToLowerInvariant().EndsWith("\\explorer.exe") ||
+                                (it.Target == "" && (n.Contains("explorer") || n.Contains("explorador"))));
                 if (it.IsExplorer) it.Name = "Explorador de archivos";
-                it.Icon = IconFor(f);
+                it.Icon = it.AppId != null ? IconFor(Shell.AppsFolderPath(it.AppId)) : IconFor(f);
                 pinned.Add(it);
             }
             if (first) SaveOrder();
@@ -1128,6 +1133,7 @@ namespace MacDock
         {
             var wins = new List<KeyValuePair<IntPtr, string>>();
             var pidPath = new Dictionary<uint, string>();
+            var appIdByPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             IntPtr me = Handle;
             N.EnumWindows((h, l) =>
             {
@@ -1144,6 +1150,7 @@ namespace MacDock
                 if (!pidPath.TryGetValue(pid, out path)) { path = N.ProcessPath(pid); pidPath[pid] = path; }
                 string cls = N.ClassOf(h);
                 if (path.EndsWith("\\explorer.exe", StringComparison.OrdinalIgnoreCase) && cls != "CabinetWClass") return true;
+                if (path != "" && !appIdByPath.ContainsKey(path)) appIdByPath[path] = Shell.AppIdOf(pid);
                 wins.Add(new KeyValuePair<IntPtr, string>(h, path));
                 return true;
             }, IntPtr.Zero);
@@ -1165,7 +1172,15 @@ namespace MacDock
                     continue;
                 }
                 if (path.EndsWith("\\ApplicationFrameHost.exe", StringComparison.OrdinalIgnoreCase)) continue;
+                string appId; appIdByPath.TryGetValue(path, out appId);
                 var it = pinned.FirstOrDefault(p => !p.IsExplorer && string.Equals(p.Target, path, StringComparison.OrdinalIgnoreCase));
+                if (it == null && !string.IsNullOrEmpty(appId)) it = pinned.FirstOrDefault(p => string.Equals(p.AppId, appId, StringComparison.OrdinalIgnoreCase));
+                if (it == null && !string.IsNullOrEmpty(appId))
+                {
+                    // accesos directos traidos de la barra de tareas: no dicen a que app apuntan, se reconocen por el nombre
+                    string nice = AppIndex.NameForAppId(appId);
+                    if (!string.IsNullOrEmpty(nice)) it = pinned.FirstOrDefault(p => p.AppId == null && !p.IsExplorer && p.Target == "" && string.Equals(p.Name, nice, StringComparison.CurrentCultureIgnoreCase));
+                }
                 if (it == null)
                 {
                     string fn = Path.GetFileName(path);
@@ -1178,7 +1193,10 @@ namespace MacDock
                     {
                         string name = Path.GetFileNameWithoutExtension(path);
                         try { var vi = FileVersionInfo.GetVersionInfo(path); if (!string.IsNullOrEmpty(vi.FileDescription)) name = vi.FileDescription; } catch { }
-                        it = new DockItem { Kind = Kind.App, Target = path, Name = name, Icon = IconFor(path) };
+                        bool packaged = !string.IsNullOrEmpty(appId);
+                        if (packaged) { string nice = AppIndex.NameForAppId(appId); if (!string.IsNullOrEmpty(nice)) name = nice; }
+                        it = new DockItem { Kind = Kind.App, Target = path, Name = name, AppId = packaged ? appId : null,
+                                            Icon = packaged ? IconFor(Shell.AppsFolderPath(appId)) : IconFor(path) };
                         transient.Add(it);
                     }
                 }
@@ -1590,8 +1608,13 @@ namespace MacDock
 
         void Launch(DockItem it)
         {
-            var psi = new ProcessStartInfo(it.Lnk ?? it.Target) { UseShellExecute = true };
-            if (it.Lnk == null && it.Target != "") psi.WorkingDirectory = Path.GetDirectoryName(it.Target);
+            ProcessStartInfo psi;
+            if (it.Lnk == null && it.AppId != null) psi = new ProcessStartInfo("explorer.exe", "\"" + Shell.AppsFolderPath(it.AppId) + "\"");   // app empaquetada: su programa no se puede abrir directo
+            else
+            {
+                psi = new ProcessStartInfo(it.Lnk ?? it.Target) { UseShellExecute = true };
+                if (it.Lnk == null && it.Target != "") psi.WorkingDirectory = Path.GetDirectoryName(it.Target);
+            }
             Process.Start(psi);
             if (!it.IsExplorer) { it.LaunchAt = DateTime.Now; StartAnim(); }
         }
@@ -1686,7 +1709,8 @@ namespace MacDock
                     {
                         string name = string.Join("_", it.Name.Split(Path.GetInvalidFileNameChars()));
                         string lnk = Path.Combine(appsDir, name + ".lnk");
-                        Shell.CreateLnk(lnk, it.Target);
+                        if (it.AppId != null) Shell.CreateLnkArgs(lnk, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"), "\"" + Shell.AppsFolderPath(it.AppId) + "\"");
+                        else Shell.CreateLnk(lnk, it.Target);
                         var order = pinned.Select(p => Path.GetFileName(p.Lnk)).ToList(); order.Add(Path.GetFileName(lnk));
                         try { File.WriteAllLines(orderFile, order); } catch { }
                     });

@@ -82,6 +82,15 @@ namespace MacDock
             }
         }
 
+        public static string NameForAppId(string appId)
+        {
+            var list = Current;
+            if (list == null || string.IsNullOrEmpty(appId)) return null;
+            string path = Shell.AppsFolderPath(appId);
+            var e = list.FirstOrDefault(a => string.Equals(a.Path, path, StringComparison.OrdinalIgnoreCase));
+            return e != null ? e.Name : null;
+        }
+
         public static void Launch(AppEntry a)
         {
             try

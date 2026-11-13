@@ -273,6 +273,32 @@ namespace MacDock
         static extern IntPtr SHGetFileInfo(string pszPath, uint dwFileAttributes, ref SHFILEINFO psfi, uint cbFileInfo, uint uFlags);
         [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr hIcon);
 
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern int GetApplicationUserModelId(IntPtr hProcess, ref uint length, StringBuilder id);
+        static readonly System.Collections.Generic.Dictionary<uint, string> appIdByPid = new System.Collections.Generic.Dictionary<uint, string>();
+
+        // Apps de la Tienda o empaquetadas (WhatsApp, Claude, Spotify de la Tienda...): su programa esta en una carpeta protegida
+        // (WindowsApps) de la que no se puede sacar el icono. Windows si dice que app es cada proceso; con ese "id" se piden
+        // el icono y el nombre reales a "shell:AppsFolder\<id>", igual que el menu Inicio. Devuelve "" si no es una app empaquetada.
+        public static string AppIdOf(uint pid)
+        {
+            lock (appIdByPid)
+            {
+                string id;
+                if (appIdByPid.TryGetValue(pid, out id)) return id;
+                id = "";
+                IntPtr h = N.OpenProcess(0x1000, false, pid);
+                if (h != IntPtr.Zero)
+                    try { uint len = 512; var sb = new StringBuilder((int)len); if (GetApplicationUserModelId(h, ref len, sb) == 0) id = sb.ToString(); }
+                    catch { }
+                    finally { N.CloseHandle(h); }
+                if (appIdByPid.Count > 400) appIdByPid.Clear();
+                appIdByPid[pid] = id;
+                return id;
+            }
+        }
+
+        public static string AppsFolderPath(string appId) { return @"shell:AppsFolder\" + appId; }
+
         public static Bitmap GetIcon(string path, int px, int flags = 4)
         {
             IShellItemImageFactory f = null; IntPtr hb = IntPtr.Zero;
