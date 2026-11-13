@@ -68,6 +68,7 @@ namespace MacDock
             box.SetBounds((int)(52 * s), (int)((BoxH - box.PreferredHeight) / 2), w - (int)(70 * s), box.PreferredHeight);
             box.TextChanged += (o, e) => { debounce.Stop(); debounce.Start(); };
             box.KeyDown += BoxKeyDown;
+            box.PreviewKeyDown += (o, e) => { if (e.KeyCode == Keys.Tab) e.IsInputKey = true; };   // Tab completa rutas
             Controls.Add(box);
             debounce.Tick += (o, e) => { debounce.Stop(); Search(box.Text); };
             EnsureAppIndexAsync();
@@ -110,6 +111,19 @@ namespace MacDock
             var quick = new List<Result>();
             if (q == "") { SetResults(quick); return; }
 
+            // una ruta pegada o escrita (C:\..., \\servidor\..., ~\..., %APPDATA%\...): se muestra la carpeta
+            // y lo que hay dentro filtrado por lo que se va escribiendo. En otro hilo por si es una ruta de red lenta.
+            if (LooksLikePath(q))
+            {
+                var pth = new Thread(() =>
+                {
+                    var res = PathResults(q);
+                    try { BeginInvoke(new Action(() => { if (seq == searchSeq && !IsDisposed) SetResults(res); })); } catch { }
+                });
+                pth.IsBackground = true; pth.Start();
+                return;
+            }
+
             string calc = TryCalc(q);
             if (calc != null) quick.Add(new Result { Title = "= " + calc, Sub = "Calculadora · Enter para copiar", Path = calc, Kind = 3 });
 
@@ -127,6 +141,65 @@ namespace MacDock
                 try { BeginInvoke(new Action(() => { if (seq == searchSeq && !IsDisposed) SetResults(quick.Concat(files).ToList()); })); } catch { }
             });
             th.IsBackground = true; th.Start();
+        }
+
+        static bool LooksLikePath(string t)
+        {
+            t = (t ?? "").Trim().Trim('"');
+            return t.Length >= 2 && ((char.IsLetter(t[0]) && t[1] == ':') || t.StartsWith("\\\\") || t.StartsWith("~") || t.StartsWith("%"));
+        }
+
+        static string ExpandPath(string t)
+        {
+            string p = t.Trim().Trim('"');
+            if (p.StartsWith("~")) p = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + p.Substring(1);
+            p = Environment.ExpandEnvironmentVariables(p).Replace('/', '\\');
+            if (p.Length == 2 && p[1] == ':') p += "\\";
+            return p;
+        }
+
+        // "C:\Users\Cris\Desk" -> la carpeta C:\Users\Cris filtrada por "Desk".
+        // "C:\Users\Cris\" o una carpeta que existe -> esa carpeta primero y luego su contenido.
+        static List<Result> PathResults(string q)
+        {
+            var list = new List<Result>();
+            try
+            {
+                string p = ExpandPath(q);
+                if (File.Exists(p))
+                {
+                    list.Add(new Result { Title = Path.GetFileName(p), Sub = "Archivo · " + Path.GetDirectoryName(p), Path = p, Kind = 1 });
+                    return list;
+                }
+                string dir, filter;
+                if (Directory.Exists(p)) { dir = p; filter = ""; }
+                else { dir = Path.GetDirectoryName(p); filter = Path.GetFileName(p); }
+                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return list;
+
+                if (filter == "")
+                    list.Add(new Result { Title = FolderName(dir), Sub = "Abrir carpeta · " + dir, Path = dir, Kind = 2 });
+                var di = new DirectoryInfo(dir);
+                var items = di.EnumerateFileSystemInfos()
+                    .Where(f => (f.Attributes & (FileAttributes.Hidden | FileAttributes.System)) == 0)
+                    .Where(f => filter == "" || f.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0)
+                    .OrderBy(f => filter != "" && f.Name.StartsWith(filter, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                    .ThenBy(f => (f.Attributes & FileAttributes.Directory) != 0 ? 0 : 1)
+                    .ThenBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+                    .Take(40);
+                foreach (var f in items)
+                {
+                    bool isDir = (f.Attributes & FileAttributes.Directory) != 0;
+                    list.Add(new Result { Title = f.Name, Sub = (isDir ? "Carpeta · " : "") + dir, Path = f.FullName, Kind = isDir ? 2 : 1 });
+                }
+            }
+            catch (Exception ex) { Program.Log(ex); }
+            return list;
+        }
+
+        static string FolderName(string dir)
+        {
+            string n = Path.GetFileName(dir.TrimEnd('\\'));
+            return n == "" ? dir : n;
         }
 
         internal static int Score(string title, string q)
@@ -230,6 +303,13 @@ namespace MacDock
             if (e.KeyCode == Keys.Escape) { e.SuppressKeyPress = true; if (box.Text != "") box.Text = ""; else Close(); }
             else if (e.KeyCode == Keys.Down) { e.SuppressKeyPress = true; MoveSel(1); }
             else if (e.KeyCode == Keys.Up) { e.SuppressKeyPress = true; MoveSel(-1); }
+            else if (e.KeyCode == Keys.Tab && results.Count > 0 && results[sel].Kind == 2 && LooksLikePath(box.Text))
+            {
+                // Tab completa la carpeta elegida y sigue mostrando lo que hay dentro (como en la terminal)
+                e.SuppressKeyPress = true;
+                box.Text = results[sel].Path.TrimEnd('\\') + "\\";
+                box.SelectionStart = box.Text.Length;
+            }
             else if (e.KeyCode == Keys.Enter)
             {
                 e.SuppressKeyPress = true;
@@ -260,6 +340,7 @@ namespace MacDock
                 if (reveal && (r.Kind == 1 || r.Kind == 2)) { FileOps.ShowInExplorer(r.Path); return; }
                 if (r.Kind == 4 && r.Path.StartsWith("shell:", StringComparison.OrdinalIgnoreCase)) { Process.Start("explorer.exe", r.Path); return; }
                 if (r.App != null) { AppIndex.Launch(r.App); return; }
+                if (r.Kind == 2 && Directory.Exists(r.Path)) { Finder.OpenOrFocus(light, s, r.Path); return; }
                 FileOps.Open(r.Path);
             }
             catch (Exception ex) { Program.Log(ex); }

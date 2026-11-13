@@ -1,5 +1,5 @@
 ﻿# Ajustes de Windows - bateria, apariencia y privacidad
-# Todo sin administrador y reversible (opcion R). El respaldo se guarda en %LOCALAPPDATA%\MacDock\ajustes-respaldo.json
+# Casi todo sin administrador (las que lo piden lo dicen en el menu) y reversible (opcion R). El respaldo se guarda en %LOCALAPPDATA%\MacDock\ajustes-respaldo.json
 
 param([switch]$NoMenu, [switch]$Revertir)
 $ErrorActionPreference = "Stop"
@@ -132,7 +132,7 @@ function Status($n) {
         17 { return ("{0:X}" -f (Get-RegValue "HKCU:\Software\Microsoft\Windows\DWM" "AccentColor")) -eq "FFFF7A00" }
         18 { return (Get-RegValue "HKCU:\Control Panel\Cursors" "(default)") -eq "MacDock" }
         19 { return (Get-RegValue "HKCU:\AppEvents\Schemes" "(default)") -eq ".None" }
-        20 { return (Get-RegValue "HKCU:\Control Panel\Desktop" "WallPaper") -eq $MacWall }
+        20 { return (Get-RegValue "HKCU:\Control Panel\Desktop" "WallPaper") -eq $MacWall -or (Get-DockOpt "DynWall") -eq "1" }
         21 { return (Get-DockOpt "MenuBar") -eq "1" }
         22 { return (Get-RegValue "HKCU:\Control Panel\Desktop" "FontSmoothingType") -eq 1 }
         23 { return (Has-Backup "lock") -and (Get-RegValue $cdm "RotatingLockScreenEnabled") -eq 0 }
@@ -146,6 +146,7 @@ function Status($n) {
         31 { return (Get-PowerIndex $SUB_VID $VID_OFF $true) -eq 180 }
         32 { return (Has-Backup "bags") }
         33 { return [bool](Get-RegValue "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons" "3") }
+        34 { return (Has-Backup "defender") }
         35 { return (Has-Backup "powerplan|desktop") }
         36 { return (Get-DockOpt "DeviceMode") -eq "1" -and (Get-DockOpt "GamingMode") -ne "0" }
         37 { return (Get-RegValue "HKCU:\System\GameConfigStore" "GameDVR_FSEBehaviorMode") -eq 2 }
@@ -154,6 +155,13 @@ function Status($n) {
 }
 
 function Mark($n) { $s = Status $n; if ($s -eq $true) { return "[activo]" } elseif ($s -eq $false) { return "        " } else { return "        " } }
+
+# Aplica solo lo que todavia no esta activo (asi un perfil no repite lo que ya tienes)
+function Apply-IfNeeded($n) {
+    $s = $null; try { $s = Status $n } catch { }
+    if ($s -eq $true) { Write-Host ("  Ya estaba activo: {0}" -f (Get-MenuText $n)) -ForegroundColor DarkGray; return }
+    Apply $n
+}
 
 function Apply($n) {
     switch ($n) {
@@ -252,6 +260,7 @@ function Apply($n) {
         }
         32 { Apply-FinderLook; Write-Host "  Listo: el Explorador abre las carpetas con iconos grandes, sin grupos, y sin 'Inicio' en la barra lateral." -ForegroundColor Green }
         33 { if (Apply-BlueFolders) { Write-Host "  Listo: carpetas azules estilo Mac (se ven al reiniciar el Explorador)." -ForegroundColor Green } }
+        34 { Apply-DefenderExclusion }
         35 {
             $oldEA = $ErrorActionPreference
             $ErrorActionPreference = "Continue"
@@ -682,6 +691,14 @@ function Apply-BlueFolders {
     return $true
 }
 
+function Apply-DefenderExclusion {
+    Write-Host "  Windows te pedira permiso de administrador para agregar MacDock a las exclusiones de Windows Defender." -ForegroundColor Cyan
+    $ok = Invoke-Admin "Add-MpPreference -ExclusionPath '$Dir' -ErrorAction Stop"
+    if ($ok) {
+        # se anota para que "revertir" la quite: una exclusion del antivirus no debe quedar olvidada
+        if (-not (Has-Backup "defender")) { Add-Backup ([pscustomobject]@{ id = "defender"; t = "defender"; path = $Dir }) }
+        Write-Host "  Listo: Windows Defender ya no revisa la carpeta '$Dir'. Puedes quitarlo con la opcion de revertir." -ForegroundColor Green
+    }
     else { Write-Host "  No se pudo agregar la exclusion (permiso cancelado o antivirus de terceros)." -ForegroundColor Yellow }
 }
 
@@ -792,6 +809,9 @@ function Revert-All {
                     if (Test-Path $e.file) { reg.exe import $e.file 2>$null | Out-Null }
                     $script:NeedExplorerRestart = $true
                 }
+                "defender" {
+                    Invoke-Admin "Remove-MpPreference -ExclusionPath '$($e.path)' -ErrorAction SilentlyContinue" | Out-Null
+                }
                 "blue" {
                     Invoke-Admin "Remove-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons' -Name '3','4' -ErrorAction SilentlyContinue" | Out-Null
                     Start-Process ie4uinit.exe -ArgumentList "-show" -WindowStyle Hidden
@@ -815,74 +835,128 @@ function Revert-All {
 # ---------------- menu ----------------
 if ($Revertir) { if (Test-Path $BackupFile) { Revert-All }; return }
 if ($NoMenu) { return }
+
+# Cada opcion tiene un Id interno (el que usan Apply, Status y el respaldo) y un numero en pantalla
+# que se asigna en orden (1, 2, 3...). Asi el menu se lee de arriba abajo sin saltos de numeros.
+# Admin = pide permiso de administrador.  Lista = abre una lista para elegir (no tiene "activo").
+$MenuGroups = @(
+    @{ Title = "ASPECTO MAC"; Items = @(
+        @{ Id = 21; Text = "Barra superior estilo Mac (hora, bateria, Wi-Fi, app activa)" },
+        @{ Id = 17; Text = "Color de acento azul de Mac" },
+        @{ Id = 18; Text = "Cursor negro estilo Mac" },
+        @{ Id = 24; Text = "Cursor un poco mas grande" },
+        @{ Id = 20; Text = "Fondo de pantalla estilo Mac" },
+        @{ Id = 28; Text = "Fondo que cambia con la hora del dia" },
+        @{ Id = 27; Text = "Modo claro de dia y oscuro de noche" },
+        @{ Id = 23; Text = "Pantalla de bloqueo con el fondo Mac (sin fotos ni anuncios)" },
+        @{ Id = 22; Text = "Letras suavizadas como en Mac" },
+        @{ Id = 33; Text = "Carpetas azules estilo Mac"; Admin = $true },
+        @{ Id = 19; Text = "Sin sonidos del sistema" },
+        @{ Id = 29; Text = "Notificaciones sin sonido ni sugerencias" }) },
+    @{ Title = "EXPLORADOR Y MENUS"; Items = @(
+        @{ Id = 26; Text = "Explorador tipo Finder: favoritos en la barra lateral" },
+        @{ Id = 32; Text = "Explorador con iconos grandes y sin grupos" },
+        @{ Id = 25; Text = "Menu Inicio limpio (sin 'Recomendado')" },
+        @{ Id = 6;  Text = "Clic derecho completo (sin 'Mostrar mas opciones')" },
+        @{ Id = 7;  Text = "Ver extensiones de archivo (.pdf, .mp4...)" },
+        @{ Id = 8;  Text = "Historial del portapapeles (Win+V)" },
+        @{ Id = 16; Text = "Esquinas activas: arriba-izq = ventanas, abajo-izq = escritorio" }) },
+    @{ Title = "VELOCIDAD"; Items = @(
+        @{ Id = 14; Text = "Los programas de inicio arrancan sin espera" },
+        @{ Id = 15; Text = "Menus que se abren al instante" },
+        @{ Id = 9;  Text = "Sin animaciones de ventanas" },
+        @{ Id = 12; Text = "Apps de la tienda sin correr escondidas" },
+        @{ Id = 13; Text = "Xbox Game Bar sin grabar en segundo plano" },
+        @{ Id = 5;  Text = "Elegir que programas arrancan con Windows"; Lista = $true }) },
+    @{ Title = "PC DE ESCRITORIO Y JUEGOS"; Device = "pc"; Items = @(
+        @{ Id = 35; Text = "Plan de energia de maximo rendimiento" },
+        @{ Id = 36; Text = "MacDock en modo PC + juegos (se aparta en pantalla completa)" },
+        @{ Id = 37; Text = "Windows optimizado para juegos (Modo Juego, sin grabacion)" }) },
+    @{ Title = "LAPTOP Y BATERIA"; Device = "laptop"; Items = @(
+        @{ Id = 1;  Text = "Pantalla a 60 Hz con bateria (maxima al enchufar)" },
+        @{ Id = 2;  Text = "Sin Turbo con bateria (menos calor, mas bateria)" },
+        @{ Id = 3;  Text = "Hibernar al cerrar la tapa con bateria" },
+        @{ Id = 30; Text = "Ahorro de energia automatico desde el 40%" },
+        @{ Id = 31; Text = "Con bateria: pantalla se apaga a los 3 min y duerme a los 15" },
+        @{ Id = 11; Text = "Apps que no usas en modo eficiencia (como App Nap de Mac)" },
+        @{ Id = 4;  Text = "Elegir apps que usan la grafica Intel en vez de NVIDIA"; Lista = $true }) },
+    @{ Title = "PRIVACIDAD Y SEGURIDAD"; Items = @(
+        @{ Id = 10; Text = "Sin publicidad personalizada ni sugerencias de Microsoft" },
+        @{ Id = 34; Text = "Que Windows Defender no revise la carpeta de MacDock"; Admin = $true }) }
+)
+$Profiles = [ordered]@{
+    "M" = @{ Name = "Todo el aspecto Mac";           Ids = @(21, 17, 18, 24, 20, 28, 23, 22, 33, 19, 29, 26, 32, 25) }
+    "P" = @{ Name = "Perfil PC de escritorio";       Ids = @(6, 7, 8, 10, 12, 13, 14, 15, 16, 35, 36, 37) }
+    "L" = @{ Name = "Perfil laptop (ahorra bateria)"; Ids = @(1, 2, 3, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 30, 31) }
+}
+$DisplayToId = @{}; $IdToText = @{}; $num = 0
+foreach ($g in $MenuGroups) { foreach ($it in $g.Items) { $num++; $it.Num = $num; $DisplayToId[$num] = $it.Id; $IdToText[$it.Id] = $it.Text } }
+function Get-MenuText($id) { if ($IdToText.ContainsKey($id)) { return $IdToText[$id] } return "ajuste $id" }
+
+$IsLaptop = $false
+try { $IsLaptop = [bool](Get-CimInstance Win32_Battery -ErrorAction Stop) } catch { }
+$Recommended = if ($IsLaptop) { "L" } else { "P" }
+
 while ($true) {
     Clear-Host
+    Write-Host "  Revisando lo que ya tienes activo..." -ForegroundColor DarkGray
+    $state = @{}
+    foreach ($g in $MenuGroups) { foreach ($it in $g.Items) { if (-not $it.Lista) { $s = $null; try { $s = Status $it.Id } catch { }; $state[$it.Id] = ($s -eq $true) } } }
+    $total = @($state.Keys).Count; $on = @($state.Values | Where-Object { $_ }).Count
+
+    Clear-Host
     Write-Host ""
-    Write-Host "  ==============  AJUSTES DE WINDOWS  ==============" -ForegroundColor Cyan
-    Write-Host "  Sin administrador. Todo se puede deshacer con R." -ForegroundColor DarkGray
+    Write-Host "  ===================  AJUSTES DE MACDOCK  ===================" -ForegroundColor Cyan
+    Write-Host ("  Tu equipo: {0}.   Ya tienes {1} de {2} ajustes activos." -f ($(if ($IsLaptop) { "laptop" } else { "PC de escritorio" })), $on, $total)
+    Write-Host "  [x] = ya esta activo, no hace falta elegirlo.   Todo se deshace con R." -ForegroundColor DarkGray
+
+    foreach ($g in $MenuGroups) {
+        Write-Host ""
+        $title = "  " + $g.Title
+        if ($g.Device -eq "laptop" -and -not $IsLaptop) { $title += "   (tu equipo no tiene bateria: no hace falta)" }
+        if ($g.Device -eq "pc" -and $IsLaptop) { $title += "   (pensado para PC de escritorio)" }
+        $dimGroup = ($g.Device -eq "laptop" -and -not $IsLaptop) -or ($g.Device -eq "pc" -and $IsLaptop)
+        Write-Host $title -ForegroundColor $(if ($dimGroup) { "DarkGray" } else { "Yellow" })
+        foreach ($it in $g.Items) {
+            Write-Host ("  {0,3}. " -f $it.Num) -NoNewline
+            if ($it.Lista) { Write-Host "[...] " -NoNewline -ForegroundColor DarkCyan }
+            elseif ($state[$it.Id]) { Write-Host "[x]   " -NoNewline -ForegroundColor Green }
+            else { Write-Host "[ ]   " -NoNewline -ForegroundColor DarkGray }
+            $txt = $it.Text; if ($it.Admin) { $txt += "  (pide administrador)" }
+            $color = if ($state[$it.Id]) { "DarkGray" } elseif ($dimGroup) { "DarkGray" } else { "White" }
+            Write-Host $txt -ForegroundColor $color
+        }
+    }
+
     Write-Host ""
-    Write-Host "  PC DE ESCRITORIO (ALTO RENDIMIENTO Y GAMING)" -ForegroundColor Yellow
-    Write-Host "  35. $(Mark 35) Plan de Energia en Alto / Maximo Rendimiento (CPU 100% con Turbo activo)"
-    Write-Host "  36. $(Mark 36) MacDock en Modo PC de Escritorio + Gaming 0% CPU (pantalla completa y sin bordes)"
-    Write-Host "  37. $(Mark 37) Optimizar Windows 11 para Gaming sin bordes (Game Mode ON, sin DVR)"
-    Write-Host "   5.          Elegir que programas arrancan al prender la PC"
-    Write-Host "  12. $(Mark 12) Apps de la tienda sin correr en segundo plano"
-    Write-Host "  13. $(Mark 13) Xbox Game Bar sin grabar en segundo plano"
+    Write-Host "  ATAJOS (aplican varios de una vez, solo lo que te falta)" -ForegroundColor Yellow
+    foreach ($k in $Profiles.Keys) {
+        $p = $Profiles[$k]
+        $missing = @($p.Ids | Where-Object { -not $state[$_] }).Count
+        $txt = if ($missing -eq 0) { "ya lo tienes todo" } else { "faltan $missing" }
+        $rec = if ($k -eq $Recommended) { "   <- recomendado para tu equipo" } else { "" }
+        Write-Host ("    {0}. {1} ({2}){3}" -f $k, $p.Name, $txt, $rec) -ForegroundColor $(if ($missing -eq 0) { "DarkGray" } elseif ($rec) { "Green" } else { "White" })
+    }
+    Write-Host "    R. Deshacer todo lo que se aplico desde este menu"
+    Write-Host "    S. Salir"
     Write-Host ""
-    Write-Host "  LAPTOP (AHORRO DE BATERIA)" -ForegroundColor Yellow
-    Write-Host "   1. $(Mark 1) Pantalla a 60 Hz con bateria (144 Hz enchufado, automatico)"
-    Write-Host "   2. $(Mark 2) Sin Turbo Boost con bateria (menos calor, bastante mas bateria)"
-    Write-Host "   3. $(Mark 3) Hibernar al cerrar la tapa con bateria (no gasta en la noche)"
-    Write-Host "   4.          Apps del dia a dia con la grafica Intel en vez de la NVIDIA"
-    Write-Host "  11. $(Mark 11) App Nap: apps que no usas en modo eficiencia (como Mac)"
-    Write-Host "  30. $(Mark 30) Ahorro de energia automatico desde el 40%"
-    Write-Host "  31. $(Mark 31) Con bateria: pantalla se apaga a los 3 min y duerme a los 15"
-    Write-Host ""
-    Write-Host "  VELOCIDAD" -ForegroundColor Yellow
-    Write-Host "  14. $(Mark 14) Arranque sin espera para los programas de inicio"
-    Write-Host "  15. $(Mark 15) Menus que se abren al instante"
-    Write-Host ""
-    Write-Host "  APARIENCIA Y PRODUCTIVIDAD" -ForegroundColor Yellow
-    Write-Host "   6. $(Mark 6) Menu de clic derecho completo (sin 'Mostrar mas opciones')"
-    Write-Host "   7. $(Mark 7) Ver extensiones de archivo (.ps1, .py, .mp4)"
-    Write-Host "   8. $(Mark 8) Historial del portapapeles (Win+V)"
-    Write-Host "   9. $(Mark 9) Sin animaciones (todo se siente mas rapido)"
-    Write-Host "  16. $(Mark 16) Esquinas activas: arriba-izq = ventanas, abajo-izq = escritorio"
-    Write-Host ""
-    Write-Host "  ASPECTO MAC" -ForegroundColor Yellow
-    Write-Host "  17. $(Mark 17) Color de acento azul de Mac"
-    Write-Host "  18. $(Mark 18) Cursor negro estilo Mac"
-    Write-Host "  19. $(Mark 19) Silencio: sin sonidos del sistema"
-    Write-Host "  20. $(Mark 20) Fondo de pantalla estilo Mac (aurora, hecho por codigo)"
-    Write-Host "  21. $(Mark 21) Barra superior estilo Mac (hora, bateria, Wi-Fi, app activa)"
-    Write-Host "  22. $(Mark 22) Letras suavizadas como en Mac"
-    Write-Host "  23. $(Mark 23) Pantalla de bloqueo con la aurora (sin fotos de Microsoft)"
-    Write-Host "  24. $(Mark 24) Cursor un poco mas grande"
-    Write-Host "  25. $(Mark 25) Menu Inicio limpio (mas apps fijadas, sin Recomendado)"
-    Write-Host "  26. $(Mark 26) Explorador tipo Finder (favoritos en la barra lateral)"
-    Write-Host "  27. $(Mark 27) Modo claro de dia y oscuro de noche (automatico)"
-    Write-Host "  28. $(Mark 28) Fondo dinamico: cambia con la hora del dia"
-    Write-Host "  29. $(Mark 29) Notificaciones tranquilas (sin sonido ni sugerencias)"
-    Write-Host "  32. $(Mark 32) Explorador tipo Finder: iconos grandes, sin grupos"
-    Write-Host "  33. $(Mark 33) Carpetas azules estilo Mac (pide administrador una vez)"
-    Write-Host ""
-    Write-Host "  PRIVACIDAD Y SEGURIDAD" -ForegroundColor Yellow
-    Write-Host "  10. $(Mark 10) Sin publicidad personalizada ni sugerencias de Microsoft"
-    Write-Host ""
-    Write-Host "   P. PERFIL PC DE ESCRITORIO: Maximo Rendimiento, Gaming sin bordes, Velocidad y Privacidad (6-8, 10, 12-16, 35-37)" -ForegroundColor Green
-    Write-Host "   L. PERFIL LAPTOP: Ahorro de Bateria, 60 Hz en bateria, App Nap y Velocidad (1-3, 6-8, 10-16, 30, 31)" -ForegroundColor Cyan
-    Write-Host "   M. Aplicar todo el aspecto Mac (17 a 28, menos el 27: claro/oscuro va con el boton sol/luna)"
-    Write-Host "   R. Revertir todo lo aplicado con este menu"
-    Write-Host "   S. Salir"
-    Write-Host ""
-    $op = (Read-Host "  Elige una opcion (puedes poner varias: P, M o numeros)").Trim().ToUpper()
+    $op = (Read-Host "  Escribe un numero, varios separados por coma (ej: 2,5,9) o una letra").Trim().ToUpper()
     if ($op -eq "S" -or $op -eq "") { break }
     try {
         if ($op -eq "R") { Revert-All }
-        elseif ($op -eq "P") { foreach ($n in 6, 7, 8, 10, 12, 13, 14, 15, 16, 35, 36, 37) { Apply $n } }
-        elseif ($op -eq "L" -or $op -eq "A") { foreach ($n in 1, 2, 3, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 30, 31) { Apply $n } }
-        elseif ($op -eq "M") { foreach ($n in (17..26 + 28 + 29 + 32 + 33)) { Apply $n } }
-        else { foreach ($n in ($op -split '[, ]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })) { if ($n -ge 1 -and $n -le 37) { Apply $n } } }
+        elseif ($op -eq "A") { $op = "L" }
+        if ($Profiles.Contains($op)) {
+            Write-Host ""; Write-Host ("  Aplicando: {0}" -f $Profiles[$op].Name) -ForegroundColor Cyan
+            foreach ($n in $Profiles[$op].Ids) { Apply-IfNeeded $n }
+        }
+        elseif ($op -ne "R") {
+            $nums = @($op -split '[, ]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
+            if ($nums.Count -eq 0) { Write-Host "  No entendi esa opcion. Escribe un numero de la lista o una letra." -ForegroundColor Yellow }
+            foreach ($d in $nums) {
+                if (-not $DisplayToId.ContainsKey($d)) { Write-Host "  El $d no esta en la lista." -ForegroundColor Yellow; continue }
+                Apply-IfNeeded $DisplayToId[$d]
+            }
+        }
     } catch { Write-Host "  Error: $($_.Exception.Message)" -ForegroundColor Red }
     Read-Host "  Enter para volver al menu" | Out-Null
 }

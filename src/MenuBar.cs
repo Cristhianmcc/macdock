@@ -769,6 +769,10 @@ namespace MacDock
         Action onToggleTheme;
         float volume = 0.5f, brightness = 0.8f;
         bool muted = false, netOn = true, isEthernet = false, dndOn = false, isDesktop = true, highPerfPlan = false;
+        // estado real de las antenas: -2 = leyendo, -1 = no hay, 0 = apagado, 1 = encendido
+        int wifiState = -2, btState = -2;
+        bool shareOn = false, busyWifi = false, busyBt = false;
+        string wifiName = null, btDevice = null;   // red Wi-Fi conectada y aparato Bluetooth conectado
         string netLabel = "Conectado";
         string mediaTitle = "Reproductor multimedia", mediaApp = "Ahora suena";
         bool mediaPlaying = false;
@@ -813,12 +817,61 @@ namespace MacDock
                 SystemStats.SampleCpuAndRam(out cpuPct, out ramPct, out ramUsedGb, out ramTotalGb);
                 highPerfPlan = SystemStats.IsHighPerformancePlan();
             }
-            try
+            dndOn = SysToggles.GetDnd();
+            shareOn = SysToggles.GetNearShare();
+        }
+
+        // Las antenas se leen en segundo plano para que el panel abra al instante
+        void ReadRadiosAsync()
+        {
+            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
             {
-                using (var k = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Notifications\Settings"))
-                    dndOn = k != null && Convert.ToInt32(k.GetValue("NOC_GLOBAL_SETTING_ALLOW_NOTIFICATION_SOUND", 1)) == 0;
-            }
-            catch { dndOn = false; }
+                int w = SysToggles.GetRadio(SysToggles.WiFi), b = SysToggles.GetRadio(SysToggles.Bluetooth);
+                bool n; bool eth; string lbl;
+                SystemStats.GetNetworkInfo(out n, out eth, out lbl);
+                string ssid = w == 1 ? SysToggles.GetWifiName() : null;
+                var bts = b == 1 ? SysToggles.GetBluetoothConnected() : new List<string>();
+                string btName = bts.Count == 0 ? null : bts.Count == 1 ? bts[0] : bts[0] + " +" + (bts.Count - 1);
+                try
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        if (IsDisposed) return;
+                        if (!busyWifi) { wifiState = w; wifiName = ssid; }
+                        if (!busyBt) { btState = b; btDevice = btName; }
+                        netOn = n; isEthernet = eth; netLabel = lbl;
+                        Invalidate();
+                    }));
+                }
+                catch { }
+            });
+        }
+
+        void ToggleRadio(int kind)
+        {
+            bool isWifi = kind == SysToggles.WiFi;
+            int cur = isWifi ? wifiState : btState;
+            if (cur < 0) return;
+            bool want = cur != 1;
+            if (isWifi) { wifiState = want ? 1 : 0; busyWifi = true; } else { btState = want ? 1 : 0; busyBt = true; }
+            Invalidate();
+            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+            {
+                bool ok = SysToggles.SetRadio(kind, want);
+                // al encender, se da tiempo a que se reconecte la red / los audifonos para mostrar su nombre
+                if (want) System.Threading.Thread.Sleep(isWifi ? 2500 : 3500);
+                try
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        if (IsDisposed) return;
+                        busyWifi = false; busyBt = false;
+                        if (!ok) MessageBox.Show(this, "Windows no dejo cambiar " + (isWifi ? "el Wi-Fi" : "el Bluetooth") + ".\nPuede que este bloqueado por el modo avion o por la configuracion del equipo.", "MacDock", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        ReadRadiosAsync();
+                    }));
+                }
+                catch { }
+            });
         }
 
         void LayoutCards()
@@ -873,6 +926,7 @@ namespace MacDock
         {
             base.OnHandleCreated(e);
             ApplyDwmTheme();
+            ReadRadiosAsync();   // aqui y no en el constructor: hace falta la ventana creada para devolver el resultado
         }
 
         void ApplyDwmTheme()
@@ -913,11 +967,22 @@ namespace MacDock
             {
                 // 1) Tarjeta Conectividad (Ethernet / Wi-Fi, Bluetooth, Compartir)
                 DrawCard(g, rConnCard, cardBg, cardBorder);
-                string connTitle = (netOn && isEthernet) ? "Ethernet" : "Wi-Fi";
-                string connGlyph = (netOn && isEthernet) ? "\uE839" : "\uE701";
-                DrawConnRow(g, rWifiRow, connGlyph, connTitle, netLabel, netOn, blue, offCircle, fg, fTitle, fSub, fIcon, hoverPart == 1);
-                DrawConnRow(g, rBtRow, "\uE702", "Bluetooth", "Activado", true, blue, offCircle, fg, fTitle, fSub, fIcon, hoverPart == 2);
-                DrawConnRow(g, rShareRow, "\uE72D", "Compartir", "En proximidad", true, blue, offCircle, fg, fTitle, fSub, fIcon, hoverPart == 3);
+                // sin antena Wi-Fi (PC de escritorio por cable): se muestra la conexion Ethernet
+                bool showEth = wifiState == -1 && isEthernet;
+                string connTitle = showEth ? "Ethernet" : "Wi-Fi";
+                string connGlyph = showEth ? "\uE839" : "\uE701";
+                string wifiSub = showEth ? netLabel
+                               : wifiState == -2 ? "..."
+                               : wifiState == -1 ? "No disponible"
+                               : wifiState == 0 ? "Desactivado"
+                               : busyWifi ? "Conectando..."
+                               : wifiName ?? "Activado, sin conexion";
+                bool wifiOn = showEth ? netOn : wifiState == 1;
+                string btSub = btState == -2 ? "..." : btState == -1 ? "No disponible" : btState == 0 ? "Desactivado"
+                             : busyBt ? "Activando..." : btDevice ?? "Activado";
+                DrawConnRow(g, rWifiRow, connGlyph, connTitle, wifiSub, wifiOn, blue, offCircle, fg, fTitle, fSub, fIcon, hoverPart == 1);
+                DrawConnRow(g, rBtRow, "\uE702", "Bluetooth", btSub, btState == 1, blue, offCircle, fg, fTitle, fSub, fIcon, hoverPart == 2);
+                DrawConnRow(g, rShareRow, "\uE72D", "Compartir", shareOn ? "Mis dispositivos" : "Desactivado", shareOn, blue, offCircle, fg, fTitle, fSub, fIcon, hoverPart == 3);
 
                 // 2) Tarjeta Modo Oscuro / Claro
                 DrawCard(g, rDarkCard, cardBg, cardBorder);
@@ -1128,9 +1193,18 @@ namespace MacDock
             if (e.Button != MouseButtons.Left) return;
             try
             {
-                if (rWifiRow.Contains(e.Location)) { Close(); Process.Start(isEthernet ? "ms-settings:network-ethernet" : "ms-settings:network-wifi"); }
-                else if (rBtRow.Contains(e.Location)) { Close(); Process.Start("ms-settings:bluetooth"); }
-                else if (rShareRow.Contains(e.Location)) { Close(); Process.Start("ms-settings:crossdevice"); }
+                // clic = encender/apagar ahi mismo (como en Mac). Si el equipo no lo tiene, abre la configuracion.
+                if (rWifiRow.Contains(e.Location))
+                {
+                    if (wifiState >= 0) ToggleRadio(SysToggles.WiFi);
+                    else if (wifiState == -1) { Close(); Process.Start(isEthernet ? "ms-settings:network-ethernet" : "ms-settings:network-wifi"); }
+                }
+                else if (rBtRow.Contains(e.Location))
+                {
+                    if (btState >= 0) ToggleRadio(SysToggles.Bluetooth);
+                    else if (btState == -1) { Close(); Process.Start("ms-settings:bluetooth"); }
+                }
+                else if (rShareRow.Contains(e.Location)) { shareOn = !shareOn; SysToggles.SetNearShare(shareOn); Invalidate(); }
                 else if (rDarkCard.Contains(e.Location))
                 {
                     if (onToggleTheme != null) onToggleTheme();
@@ -1141,9 +1215,8 @@ namespace MacDock
                 }
                 else if (rDndCard.Contains(e.Location))
                 {
-                    dndOn = !dndOn;
-                    using (var k = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Notifications\Settings"))
-                        if (k != null) k.SetValue("NOC_GLOBAL_SETTING_ALLOW_NOTIFICATION_SOUND", dndOn ? 0 : 1, RegistryValueKind.DWord);
+                    // No molestar de verdad (el mismo de Windows): silencia y oculta las notificaciones
+                    if (SysToggles.SetDnd(!dndOn)) dndOn = !dndOn;
                     Invalidate();
                 }
                 else if (rDispCard.Contains(e.Location))

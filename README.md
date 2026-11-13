@@ -152,7 +152,7 @@ Para comparar: un dock basado en Electron suele usar entre 100 y 300 MB.
 
 1. [**Descarga el zip**](descargas/MacDock-Instalador.zip) y descomprímelo.
 2. Doble clic en **`Instalar MacDock.exe`** y acepta.
-   - Si aparece **"Windows protegió su PC"**, haz clic en **Más información → Ejecutar de todas formas**. Sale porque el programa no tiene una firma digital comercial (cuesta dinero). El código está completo aquí para que lo revises.
+   - Si aparece **"Windows protegió su PC"**, haz clic en **Más información → Ejecutar de todas formas**. Solo sale en las compilaciones sin firma digital; las versiones publicadas con firma pasan directo. El código está completo aquí para que lo revises, y el zip trae su huella **SHA256** para comprobar que nadie lo alteró (ver [Firma digital y antivirus](#firma-digital-y-antivirus)).
 3. Al terminar te pregunta si quieres abrir los **Ajustes de Windows**:
    - Escribe **`A`** para la batería y la velocidad recomendadas.
    - Escribe **`M`** para todo el aspecto Mac.
@@ -210,6 +210,21 @@ Clic derecho en el dock → **Opciones del dock**: cada función se puede apagar
 
 ---
 
+## Firma digital y antivirus
+
+MacDock no es un virus, pero **un `.exe` sin firma digital y sin versión en sus propiedades se parece demasiado a un binario anónimo** para los antivirus. Eso, más un puñado de cosas que el programa hace de verdad (poner una entrada de inicio, ocultar la barra de tareas, escuchar el teclado para el atajo de Spotlight, ejecutar un script de ajustes), da un puntaje alto en los modelos de Windows Defender y de vez en cuando sale un aviso.
+
+Lo que ya está hecho en el código y en el build:
+
+- El ejecutable declara **fabricante, producto, versión y copyright** (antes decía `0.0.0.0` y nada más).
+- Declara su **manifiesto**: que no pide administrador (`asInvoker`) y para qué versiones de Windows está hecho.
+- `build.ps1` sabe **firmar** el instalador y el desinstalador con un certificado de firma de código, y publica la huella **SHA256** del zip.
+- Las versiones se firman con **SignPath Foundation**, el programa de firma gratuita para proyectos de código abierto (solicitud en trámite).
+
+Lo que hay que hacer para que pase de frente en cualquier PC está en [docs/firma-y-antivirus.md](docs/firma-y-antivirus.md): cómo firmar, cómo pedirle a Microsoft que corrija el falso positivo y la lista de comprobación antes de publicar cada versión.
+
+---
+
 ## Compilar desde el código
 
 No necesitas Visual Studio:
@@ -218,7 +233,20 @@ No necesitas Visual Studio:
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-El resultado queda en `dist\` y en `descargas\MacDock-Instalador.zip`.
+Con firma digital (recomendado para publicar):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build.ps1 -Version 3.8.1 -Firmar
+```
+
+| Parámetro | Para qué |
+|---|---|
+| `-Version 3.9.0` | Cambia la versión en las propiedades del exe (por defecto toma la de `src/AssemblyInfo.cs`). |
+| `-Firmar` | Firma con el certificado de firma de código instalado en el equipo. |
+| `-Pfx ruta -PfxPassword clave` | Firma con un `.pfx` en vez de un certificado instalado. |
+| `-Thumbprint ...` | Elige un certificado concreto del almacén. |
+
+El resultado queda en `dist\` y en `descargas\MacDock-Instalador.zip`, junto a `MacDock-Instalador.zip.sha256`.
 
 | Archivo | Qué es |
 |---|---|
@@ -244,6 +272,8 @@ El resultado queda en `dist\` y en `descargas\MacDock-Instalador.zip`.
 | `src/Setup.cs` | El instalador y desinstalador |
 | `src/ajustes.ps1` | El menú de ajustes de Windows (batería, aspecto, privacidad) |
 | `src/cursor-mac.ps1` | El generador del cursor |
+| `src/AssemblyInfo.cs` | Fabricante, producto, versión y copyright del ejecutable |
+| `src/app.manifest` | Manifiesto: sin administrador, compatible con Windows 10/11 |
 
 ---
 
