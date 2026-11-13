@@ -38,12 +38,19 @@ namespace MacDock
                 {
                     using (var st = Assembly.GetExecutingAssembly().GetManifestResourceStream("MacDockMedia.dll"))
                     {
-                        if (st == null) return null;
+                        if (st == null) { Program.Log("Musica: esta version se compilo sin el modulo de Windows (revisa el aviso de build.ps1). Se usa el titulo de la ventana."); return null; }
                         var ms = new MemoryStream(); st.CopyTo(ms);
-                        media = Assembly.Load(ms.ToArray()).GetType("MacDockMedia.Media");
+                        // se copia a un archivo y se carga desde ahi: las funciones de Windows (WinRT) no siempre cargan desde la memoria
+                        string path = Path.Combine(Program.DataDir, "MacDockMedia.dll");
+                        var bytes = ms.ToArray();
+                        try { if (!File.Exists(path) || new FileInfo(path).Length != bytes.Length) { Directory.CreateDirectory(Program.DataDir); File.WriteAllBytes(path, bytes); } }
+                        catch { }   // si el archivo esta en uso por otra copia, sirve el que ya estaba
+                        media = Assembly.LoadFrom(path).GetType("MacDockMedia.Media", true);
+                        // prueba real: si Windows no deja usar la API, se nota aqui y se usa el metodo anterior
+                        media.GetMethod("Now", BindingFlags.Public | BindingFlags.Static).Invoke(null, null);
                     }
                 }
-                catch (Exception ex) { Program.Log(ex); media = null; }
+                catch (Exception ex) { Program.Log("Musica: no se pudo usar el modulo de Windows, se usa el titulo de la ventana. Detalle: " + (ex.InnerException ?? ex)); media = null; }
                 return media;
             }
         }
@@ -68,13 +75,14 @@ namespace MacDock
                 lock (Lock)
                 {
                     old = last;
-                    // se reutilizan las imagenes si no cambio la cancion
-                    if (old != null && old.Title == info.Title && old.AppId == info.AppId)
+                    // se reutilizan: la portada si es la misma cancion, el icono si es la misma app
+                    if (old != null)
                     {
-                        if (info.Art == null) info.Art = old.Art; else if (old.Art != null) old.Art.Dispose();
-                        if (info.AppIcon == null) info.AppIcon = old.AppIcon; else if (old.AppIcon != null) old.AppIcon.Dispose();
+                        if (old.Title == info.Title && old.AppId == info.AppId && info.Art == null) info.Art = old.Art;
+                        else if (old.Art != null && old.Art != info.Art) old.Art.Dispose();
+                        if (old.AppId == info.AppId && info.AppIcon == null) info.AppIcon = old.AppIcon;
+                        else if (old.AppIcon != null && old.AppIcon != info.AppIcon) old.AppIcon.Dispose();
                     }
-                    else if (old != null) { if (old.Art != null) old.Art.Dispose(); if (old.AppIcon != null) old.AppIcon.Dispose(); }
                     last = info; busy = false;
                 }
                 Action<NowPlayingInfo>[] cbs;
@@ -104,8 +112,27 @@ namespace MacDock
             // sin el modulo: el metodo anterior (titulo de la ventana)
             string title, app; bool playing;
             MediaControl.GetNowPlaying(out title, out app, out playing);
-            var fb = new NowPlayingInfo { Title = title, App = app, Playing = playing };
+            var fb = new NowPlayingInfo { Title = title, App = app, AppId = app, Playing = playing };
             fb.HasSession = title != "Reproductor multimedia" && title.IndexOf("Nueva pestaña", StringComparison.OrdinalIgnoreCase) < 0 && title.IndexOf("New Tab", StringComparison.OrdinalIgnoreCase) < 0;
+            // Spotify pone "Artista - Cancion" en su ventana
+            int dash = title.IndexOf(" - ");
+            if (app == "Spotify" && dash > 0) { fb.Artist = title.Substring(0, dash).Trim(); fb.Title = title.Substring(dash + 3).Trim(); }
+            // icono de la app que suena
+            try
+            {
+                var procs = System.Diagnostics.Process.GetProcessesByName(app == "Edge" ? "msedge" : app);
+                foreach (var pr in procs) using (pr)
+                {
+                    if (fb.AppIcon != null) continue;
+                    string pth = N.ProcessPath((uint)pr.Id);
+                    if (pth != "" && (last == null || last.AppIcon == null || last.AppId != app))
+                    {
+                        string aid = Shell.AppIdOf((uint)pr.Id);
+                        fb.AppIcon = Shell.GetIcon(aid != "" ? Shell.AppsFolderPath(aid) : pth, 32);
+                    }
+                }
+            }
+            catch { }
             return fb;
         }
 
