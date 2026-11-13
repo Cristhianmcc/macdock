@@ -1622,7 +1622,12 @@ namespace MacDock
                 psi = new ProcessStartInfo(it.Lnk ?? it.Target) { UseShellExecute = true };
                 if (it.Lnk == null && it.Target != "") psi.WorkingDirectory = Path.GetDirectoryName(it.Target);
             }
-            Process.Start(psi);
+            try { Process.Start(psi); }
+            catch (System.ComponentModel.Win32Exception ex)
+            {
+                if (ex.NativeErrorCode == 1223) return;   // cancelaste el permiso de administrador o el "abrir con": no es un error
+                throw;
+            }
             if (!it.IsExplorer) { it.LaunchAt = DateTime.Now; StartAnim(); }
         }
 
