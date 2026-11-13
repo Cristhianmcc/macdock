@@ -806,7 +806,8 @@ namespace MacDock
             SystemStats.GetNetworkInfo(out netOn, out isEthernet, out netLabel);
             volume = AudioSessions.GetMasterVolume(out muted);
             brightness = DisplayBrightness.Get();
-            MediaControl.GetNowPlaying(out mediaTitle, out mediaApp, out mediaPlaying);
+            ApplyMusic(NowPlaying.Last);   // lo ultimo conocido al instante; RefreshMediaSoon trae lo actual
+            RefreshMediaSoon();
             if (isDesktop)
             {
                 SystemStats.SampleCpuAndRam(out cpuPct, out ramPct, out ramUsedGb, out ramTotalGb);
@@ -1155,9 +1156,9 @@ namespace MacDock
                     Close();
                     N.PressKeys(0x5B, 0x11, 0x56); // Win + Ctrl + V: selector nativo de salida de audio de Windows 11
                 }
-                else if (rPrevBtn.Contains(e.Location)) { MediaControl.PrevTrack(); RefreshMediaSoon(); }
-                else if (rPlayBtn.Contains(e.Location)) { MediaControl.PlayPause(); mediaPlaying = !mediaPlaying; Invalidate(); RefreshMediaSoon(); }
-                else if (rNextBtn.Contains(e.Location)) { MediaControl.NextTrack(); RefreshMediaSoon(); }
+                else if (rPrevBtn.Contains(e.Location)) NowPlaying.Prev(RefreshMediaSoon);
+                else if (rPlayBtn.Contains(e.Location)) { mediaPlaying = !mediaPlaying; Invalidate(); NowPlaying.PlayPause(RefreshMediaSoon); }
+                else if (rNextBtn.Contains(e.Location)) NowPlaying.Next(RefreshMediaSoon);
                 else if (rFootPower.Contains(e.Location))
                 {
                     if (isDesktop)
@@ -1182,11 +1183,19 @@ namespace MacDock
             catch (Exception ex) { Program.Log(ex); }
         }
 
+        // Pide a Windows que esta sonando (en segundo plano) y redibuja la tarjeta
         void RefreshMediaSoon()
         {
-            var t = new System.Windows.Forms.Timer { Interval = 250 };
-            t.Tick += (o, a) => { t.Stop(); t.Dispose(); if (!IsDisposed) { MediaControl.GetNowPlaying(out mediaTitle, out mediaApp, out mediaPlaying); Invalidate(); } };
-            t.Start();
+            if (!IsHandleCreated) { EventHandler h = null; h = (o, e) => { HandleCreated -= h; RefreshMediaSoon(); }; HandleCreated += h; return; }
+            NowPlaying.Refresh(info => { try { BeginInvoke(new Action(() => { if (!IsDisposed) { ApplyMusic(info); Invalidate(); } })); } catch { } });
+        }
+
+        void ApplyMusic(NowPlayingInfo info)
+        {
+            if (info == null || !info.HasSession || info.Title == "") { mediaTitle = "Nada sonando"; mediaApp = "Spotify, YouTube Music, el navegador..."; mediaPlaying = false; return; }
+            mediaTitle = info.Title;
+            mediaApp = info.Artist != "" && info.App != "" ? info.Artist + " · " + info.App : (info.Artist != "" ? info.Artist : info.App);
+            mediaPlaying = info.Playing;
         }
 
         protected override void OnMouseWheel(MouseEventArgs e)

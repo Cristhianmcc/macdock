@@ -35,6 +35,8 @@ namespace MacDock
         readonly List<KeyValuePair<DesktopWidget, RectangleF>> widgets = new List<KeyValuePair<DesktopWidget, RectangleF>>();
         readonly Timer tick = new Timer { Interval = 1000 }, anim = new Timer { Interval = 12 };
         RectangleF rNotif, rNotifBtn, rDnd;
+        RectangleF rMusic, rPrev, rPlay, rNext;   // tarjeta de "que esta sonando"
+        NowPlayingInfo music;
         bool dnd, closing; float slide;   // 0 = fuera de la pantalla, 1 = en su lugar
         int restX, hidX;
 
@@ -52,10 +54,17 @@ namespace MacDock
             rNotifBtn = new RectangleF(pad + 14 * s, rNotif.Bottom - 40 * s, 170 * s, 28 * s);
             rDnd = new RectangleF(rNotif.Right - 14 * s - 130 * s, rNotif.Bottom - 40 * s, 130 * s, 28 * s);
             y = rNotif.Bottom + gap;
+            rMusic = new RectangleF(pad, y, wide, 84 * s);
+            float bsz = 32 * s, by = rMusic.Y + (rMusic.Height - bsz) / 2;
+            rNext = new RectangleF(rMusic.Right - 12 * s - bsz, by, bsz, bsz);
+            rPlay = new RectangleF(rNext.X - 6 * s - bsz, by, bsz, bsz);
+            rPrev = new RectangleF(rPlay.X - 6 * s - bsz, by, bsz, bsz);
+            y = rMusic.Bottom + gap;
+            music = NowPlaying.Last;
 
             // los widgets, en el orden de Mac: calendario arriba, luego en pares
             bool laptop = !DeviceProfile.IsDesktop && BatteryGlyph.Read().HasBattery;
-            var layout = new List<string[]> { new[] { "calendar" }, laptop ? new[] { "clock", "battery" } : new[] { "clock", "system" }, laptop ? new[] { "system", "notes" } : new[] { "notes" } };
+            var layout = new List<string[]> { new[] { "calendar" }, new[] { "focus", "clock" }, laptop ? new[] { "battery", "system" } : new[] { "system", "notes" }, laptop ? new[] { "notes" } : new string[0] };
             foreach (var row in layout)
             {
                 if (y + small > workArea.Height - pad) break;   // pantallas bajitas: los que quepan
@@ -66,7 +75,7 @@ namespace MacDock
                     if (wd == null) continue;
                     var cs = wd.CardSize;
                     widgets.Add(new KeyValuePair<DesktopWidget, RectangleF>(wd, new RectangleF(x, y, cs.Width, cs.Height)));
-                    wd.Update();
+                    wd.UpdateData();
                     x += cs.Width + gap;
                 }
                 y += small + gap;
@@ -75,7 +84,8 @@ namespace MacDock
             restX = workArea.Right - w - margin; hidX = workArea.Right + 4;
             Bounds = new Rectangle(hidX, workArea.Top + margin, w, h);
             dnd = ReadDnd();
-            tick.Tick += (o, e) => { bool changed = false; foreach (var kv in widgets) { var k = kv.Key.Tag as string; var nk = kv.Key.Update(); if (nk != k) { kv.Key.Tag = nk; changed = true; } } if (changed) Invalidate(); };
+            tick.Tick += (o, e) => RefreshMusic();
+            tick.Tick += (o, e) => { bool changed = false; foreach (var kv in widgets) { var k = kv.Key.Tag as string; var nk = kv.Key.UpdateData(); if (nk != k) { kv.Key.Tag = nk; changed = true; } } if (changed) Invalidate(); };
             anim.Tick += (o, e) => Step();
         }
 
@@ -87,7 +97,15 @@ namespace MacDock
             int border = light ? 0x00CFCFD6 : 0x00484852; DwmSetWindowAttribute(Handle, 34, ref border, 4);
         }
 
-        protected override void OnShown(EventArgs e) { base.OnShown(e); anim.Start(); tick.Start(); }
+        protected override void OnShown(EventArgs e) { base.OnShown(e); anim.Start(); tick.Start(); RefreshMusic(); }
+
+        void RefreshMusic()
+        {
+            NowPlaying.Refresh(info =>
+            {
+                try { BeginInvoke(new Action(() => { if (IsDisposed) return; bool changed = music == null || music.Key != info.Key; music = info; if (changed) Invalidate(); })); } catch { }
+            });
+        }
         protected override void OnDeactivate(EventArgs e) { base.OnDeactivate(e); SlideOut(); }
         protected override void OnKeyDown(KeyEventArgs e) { base.OnKeyDown(e); if (e.KeyCode == Keys.Escape) SlideOut(); }
 
@@ -143,7 +161,56 @@ namespace MacDock
                 Pill(g, rNotifBtn, "Ver notificaciones", false, fSub);
                 Pill(g, rDnd, dnd ? "No molestar  ●" : "No molestar", dnd, fSub);
 
+                DrawMusic(g, fTitle, fSub);
                 foreach (var kv in widgets) kv.Key.PaintInto(g, kv.Value, CardBg, CardBorder);
+            }
+        }
+
+        // Tarjeta de musica: portada (o icono de la app), cancion, artista · app y controles
+        void DrawMusic(Graphics g, Font fTitle, Font fSub)
+        {
+            Card(g, rMusic, 18 * s);
+            bool has = music != null && music.HasSession && music.Title != "";
+            var art = new RectangleF(rMusic.X + 12 * s, rMusic.Y + 12 * s, rMusic.Height - 24 * s, rMusic.Height - 24 * s);
+            using (var p = Round(art, 10 * s))
+            {
+                if (has && music.Art != null)
+                {
+                    var st = g.Save(); g.SetClip(p); g.DrawImage(music.Art, art); g.Restore(st);
+                }
+                else
+                {
+                    using (var b = new SolidBrush(light ? Color.FromArgb(236, 236, 242) : Color.FromArgb(62, 62, 72))) g.FillPath(b, p);
+                    if (has && music.AppIcon != null) g.DrawImage(music.AppIcon, RectangleF.Inflate(art, -art.Width * 0.24f, -art.Height * 0.24f));
+                    else using (var f = new Font("Segoe MDL2 Assets", 20f * s, FontStyle.Regular, GraphicsUnit.Pixel)) using (var b = new SolidBrush(Sub))
+                        using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center }) g.DrawString("\uE8D6", f, b, art, sf);   // nota musical
+                }
+            }
+            float tx = art.Right + 12 * s, tw = rPrev.X - 8 * s - tx;
+            var sfT = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap };
+            using (var fgB = new SolidBrush(Fg)) using (var subB = new SolidBrush(Sub))
+            {
+                if (has)
+                {
+                    g.DrawString(music.Title, fTitle, fgB, new RectangleF(tx, rMusic.Y + 20 * s, tw, 20 * s), sfT);
+                    string sub = music.Artist != "" && music.App != "" ? music.Artist + " · " + music.App : (music.Artist != "" ? music.Artist : music.App);
+                    g.DrawString(sub, fSub, subB, new RectangleF(tx, rMusic.Y + 42 * s, tw, 18 * s), sfT);
+                }
+                else
+                {
+                    g.DrawString("Nada sonando", fTitle, fgB, new RectangleF(tx, rMusic.Y + 20 * s, tw, 20 * s), sfT);
+                    g.DrawString("Spotify, YouTube Music, el navegador...", fSub, subB, new RectangleF(tx, rMusic.Y + 42 * s, tw, 18 * s), sfT);
+                }
+            }
+            using (var f = new Font("Segoe MDL2 Assets", 13f * s, FontStyle.Regular, GraphicsUnit.Pixel))
+            using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+            {
+                Color bc = light ? Color.FromArgb(236, 236, 242) : Color.FromArgb(62, 62, 72);
+                foreach (var pr in new[] { new KeyValuePair<RectangleF, string>(rPrev, "\uE892"), new KeyValuePair<RectangleF, string>(rPlay, has && music.Playing ? "\uE769" : "\uE768"), new KeyValuePair<RectangleF, string>(rNext, "\uE893") })
+                {
+                    using (var b = new SolidBrush(bc)) g.FillEllipse(b, pr.Key);
+                    using (var b = new SolidBrush(has ? Fg : Sub)) g.DrawString(pr.Value, f, b, pr.Key, sf);
+                }
             }
         }
 
@@ -170,7 +237,7 @@ namespace MacDock
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            bool hand = rNotifBtn.Contains(e.Location) || rDnd.Contains(e.Location) || widgets.Any(kv => kv.Value.Contains(e.Location) && (kv.Key is SystemWidget || kv.Key is NotesWidget || kv.Key is CalendarWidget));
+            bool hand = rNotifBtn.Contains(e.Location) || rDnd.Contains(e.Location) || rPrev.Contains(e.Location) || rPlay.Contains(e.Location) || rNext.Contains(e.Location) || widgets.Any(kv => kv.Value.Contains(e.Location) && (kv.Key is SystemWidget || kv.Key is NotesWidget || kv.Key is CalendarWidget));
             Cursor = hand ? Cursors.Hand : Cursors.Default;
         }
 
@@ -187,6 +254,10 @@ namespace MacDock
             try
             {
                 if (rNotifBtn.Contains(e.Location)) { SlideOut(); N.PressKeys(0x5B, 0x4E); return; }   // Win + N
+                Action again = () => RefreshMusic();
+                if (rPlay.Contains(e.Location)) { if (music != null) { music.Playing = !music.Playing; Invalidate(); } NowPlaying.PlayPause(again); return; }
+                if (rPrev.Contains(e.Location)) { NowPlaying.Prev(again); return; }
+                if (rNext.Contains(e.Location)) { NowPlaying.Next(again); return; }
                 if (rDnd.Contains(e.Location))
                 {
                     dnd = !dnd;
@@ -200,7 +271,7 @@ namespace MacDock
                         var p = PointToScreen(Point.Round(kv.Value.Location));
                         kv.Key.Pos = new Point(p.X - (int)(kv.Value.Width + 330 * s), p.Y);   // la ventanita de Notas sale a la izquierda del panel
                         if (kv.Key is SystemWidget || kv.Key is NotesWidget) SlideOut();
-                        kv.Key.Click(new PointF(e.X - kv.Value.X, e.Y - kv.Value.Y));
+                        kv.Key.ClickAt(new PointF(e.X - kv.Value.X, e.Y - kv.Value.Y));
                         Invalidate();   // el calendario pudo cambiar de mes
                         return;
                     }

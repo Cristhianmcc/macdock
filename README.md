@@ -83,6 +83,8 @@ Incluye además un **menú de ajustes** (un script de PowerShell) que cambia la 
 
 ### 🔔 Centro de Notificaciones (estilo Big Sur)
 - **Clic en la fecha y hora** de la barra superior: entra un panel desde la derecha con el día de hoy y los widgets (calendario, reloj, batería, sistema y notas).
+- **Música**: qué está sonando (Spotify, YouTube Music en el navegador, Apple Music, VLC…) con portada y controles, usando la API oficial de Windows. El Centro de Control usa lo mismo.
+- **Concentración (Pomodoro)**: 25 min de concentración y 5 de descanso (o 50/10, 15/3), descanso largo cada 4 rondas, aviso al terminar cada fase y, si quieres, "No molestar" mientras te concentras. También como widget del escritorio.
 - Botón para ver las notificaciones de Windows e interruptor de **No molestar**. Windows no deja que otros programas lean tus notificaciones, por eso no se muestran dentro.
 
 ### 📊 Monitor de Actividad (memoria por app)

@@ -18,7 +18,7 @@ namespace MacDock
     // No usan internet. Cada uno se redibuja solo cuando cambia lo que muestra.
     static class Widgets
     {
-        public static readonly string[] Kinds = { "clock", "calendar", "battery", "system", "notes" };
+        public static readonly string[] Kinds = { "clock", "calendar", "battery", "system", "notes", "focus" };
         static readonly string[] DefaultOn = { "clock", "battery", "calendar", "system" };
 
         public static string NameOf(string kind)
@@ -30,6 +30,7 @@ namespace MacDock
                 case "battery": return "Batería";
                 case "system": return "Sistema (CPU y RAM)";
                 case "notes": return "Notas";
+                case "focus": return "Concentración (Pomodoro)";
             }
             return kind;
         }
@@ -55,6 +56,7 @@ namespace MacDock
         public static void Stop()
         {
             running = false;
+            FocusTimer.Shutdown();   // si se activo "No molestar" por la concentracion, se regresa
             foreach (var w in live.ToList()) try { w.Close(); w.Dispose(); } catch { }
             live.Clear();
         }
@@ -113,6 +115,7 @@ namespace MacDock
                 case "battery": w = new BatteryWidget(); break;
                 case "system": w = new SystemWidget(); break;
                 case "notes": w = new NotesWidget(); break;
+                case "focus": w = new FocusWidget(); break;
                 default: return;
             }
             w.Init(kind, s, light);
@@ -136,6 +139,7 @@ namespace MacDock
                 case "calendar": return new Point(x0, y0 + small + gap);
                 case "system": return new Point(x0, y0 + (small + gap) * 2);
                 case "notes": return new Point(x0 + small + gap, y0 + (small + gap) * 2);
+                case "focus": return new Point(x0, y0 + (small + gap) * 3);
             }
             return new Point(x0, y0);
         }
@@ -191,6 +195,26 @@ namespace MacDock
             var m = MenuStyle.New(light);
             Action<string, Action> add = (text, act) => { var mi = new ToolStripMenuItem(text); mi.Click += (o, e) => { try { act(); } catch (Exception ex) { Program.Log(ex); } }; m.Items.Add(mi); };
             if (w is NotesWidget) { add("Editar nota", ((NotesWidget)w).Edit); m.Items.Add(new ToolStripSeparator()); }
+            if (w is FocusWidget)
+            {
+                Action redraw = () => w.SetTheme(light);
+                add(FocusTimer.Running ? "Pausar" : "Iniciar", () => { FocusTimer.Toggle(); redraw(); });
+                add("Saltar a " + (FocusTimer.Current == FocusTimer.Phase.Focus ? "descanso" : "concentración"), () => { FocusTimer.Skip(); redraw(); });
+                add("Reiniciar", () => { FocusTimer.Reset(); redraw(); });
+                var dur = new ToolStripMenuItem("Duración");
+                foreach (var d in new[] { new[] { 25, 5, 15 }, new[] { 50, 10, 20 }, new[] { 15, 3, 10 } })
+                {
+                    var dd = d;
+                    var mi = new ToolStripMenuItem(dd[0] + " min concentración / " + dd[1] + " min descanso") { Checked = FocusTimer.FocusMin == dd[0] && FocusTimer.BreakMin == dd[1] };
+                    mi.Click += (o, e) => { FocusTimer.SetDurations(dd[0], dd[1], dd[2]); redraw(); };
+                    dur.DropDownItems.Add(mi);
+                }
+                m.Items.Add(dur);
+                var sil = new ToolStripMenuItem("Activar No molestar al concentrarme") { Checked = FocusTimer.SilenceWhileFocus };
+                sil.Click += (o, e) => FocusTimer.SetSilence(!FocusTimer.SilenceWhileFocus);
+                m.Items.Add(sil);
+                m.Items.Add(new ToolStripSeparator());
+            }
             add("Quitar este widget", () => SetEnabled(w.Kind, false));
             var more = new ToolStripMenuItem("Widgets");
             foreach (var k in Kinds)
@@ -259,14 +283,15 @@ namespace MacDock
                 case "battery": w = new BatteryWidget(); break;
                 case "system": w = new SystemWidget(); break;
                 case "notes": w = new NotesWidget(); break;
+                case "focus": w = new FocusWidget(); break;
                 default: return null;
             }
             w.Init(kind, scale, lightTheme);
             w.embedded = true;
             return w;
         }
-        public string Update() { return StateKey(); }   // lee los datos (y dice si cambiaron)
-        public void Click(PointF inCard) { OnClickAt(inCard); }
+        public string UpdateData() { return StateKey(); }   // lee los datos (y dice si cambiaron)
+        public void ClickAt(PointF inCard) { OnClickAt(inCard); }
         public void PaintInto(Graphics g, RectangleF r, Color card, Color border)
         {
             using (var p = Round(r, 18 * s))
