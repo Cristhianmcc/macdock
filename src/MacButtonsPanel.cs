@@ -251,8 +251,14 @@ namespace MacDock
                 }
             g.Restore(st);
 
+            // que esta pasando ahorita (ayuda a saber por que no salen)
+            var mb = MacButtons.Current; string status; Color sc = Sub;
+            if (!on) status = "Apagados. Prende el primer interruptor.";
+            else if (mb == null || mb.IsDisposed) { status = "No están corriendo. Cierra y vuelve a abrir MacDock."; sc = Orange; }
+            else if (mb.Paused) { status = "En pausa: Windows cree que hay un juego o video a pantalla completa."; sc = Orange; }
+            else status = "Ahora mismo: botones en " + mb.Count + (mb.Count == 1 ? " ventana" : " ventanas") + (MacButtons.LastError != "" ? "  ·  error: " + MacButtons.LastError : "");
             using (var f = F(11.5f))
-                Txt(g, "No salen en apps abiertas como administrador ni en juegos o videos a pantalla completa.", f, Sub, new RectangleF(r.X + 4 * s, r.Bottom - 28 * s, r.Width - 8 * s, 28 * s), StringAlignment.Center);
+                Txt(g, status + "   (no salen en apps abiertas como administrador)", f, sc, new RectangleF(r.X + 4 * s, r.Bottom - 28 * s, r.Width - 8 * s, 28 * s), StringAlignment.Center);
         }
     }
 }

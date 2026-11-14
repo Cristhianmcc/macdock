@@ -60,8 +60,15 @@ namespace MacDock
         bool light;
         readonly HashSet<IntPtr> bordered = new HashSet<IntPtr>();   // ventanas a las que les pusimos el borde de Mac
 
+        // para que la ventana "Botones de Mac" diga que esta pasando
+        public static MacButtons Current;
+        public int Count { get { return overlays.Count; } }
+        public bool Paused { get { return paused; } }
+        public static string LastError = "";
+
         public MacButtons(bool lightTheme)
         {
+            Current = this;
             light = lightTheme;
             MacButtonRules.Load();
             MacButtonRules.Changed += OnRulesChanged;
@@ -170,12 +177,16 @@ namespace MacDock
 
         void Ensure(IntPtr h)
         {
-            if (overlays.ContainsKey(h) || !Eligible(h) || !MacButtonRules.Allowed(h)) return;
-            var ov = new ButtonOverlay(h);
-            if (MacButtonRules.MacBorder) Border(h, true);
-            overlays[h] = ov; lock (tracked) tracked.Add(h);
-            ov.Show();
-            ov.Place(h == active);
+            try
+            {
+                if (overlays.ContainsKey(h) || !Eligible(h) || !MacButtonRules.Allowed(h)) return;
+                var ov = new ButtonOverlay(h);
+                if (MacButtonRules.MacBorder) Border(h, true);
+                overlays[h] = ov; lock (tracked) tracked.Add(h);
+                ov.Show();
+                ov.Place(h == active);
+            }
+            catch (Exception ex) { LastError = ex.Message; Program.Log(ex); }
         }
 
         void Remove(IntPtr h)
@@ -220,7 +231,7 @@ namespace MacDock
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            closing = true; MacButtonRules.Changed -= OnRulesChanged;
+            closing = true; MacButtonRules.Changed -= OnRulesChanged; if (Current == this) Current = null;
             try { if (hookThreadId != 0) PostThreadMessage(hookThreadId, 0x12, IntPtr.Zero, IntPtr.Zero); } catch { }
             cleanup.Stop();
             foreach (var h in overlays.Keys.ToList()) Remove(h);

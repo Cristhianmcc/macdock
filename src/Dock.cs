@@ -357,7 +357,7 @@ namespace MacDock
         global::MacDock.MacButtons macBtns;
         void SetMacButtons(bool on)
         {
-            if (on && macBtns == null) { macBtns = new global::MacDock.MacButtons(light); macBtns.Show(); }
+            if (on && macBtns == null) { macBtns = new global::MacDock.MacButtons(light); macBtns.Show(); if (fullApp) macBtns.SetPaused(true); }
             else if (!on && macBtns != null) { macBtns.Close(); macBtns.Dispose(); macBtns = null; }
         }
 
