@@ -20,6 +20,7 @@ namespace MacDock
         [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
         [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr h, int flags);
         [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int attr, out int v, int size);
+        [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr h, int attr, ref int v, int size);
 
         WinEventProc proc; IntPtr hookSys, hookObj, hookLoc, hookCloak; uint hookThreadId;
         [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
@@ -56,8 +57,14 @@ namespace MacDock
         Timer cleanup = new Timer { Interval = 2000 };
         public static readonly uint MyPid = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
 
+        bool light;
+        readonly HashSet<IntPtr> bordered = new HashSet<IntPtr>();   // ventanas a las que les pusimos el borde de Mac
+
         public MacButtons(bool lightTheme)
         {
+            light = lightTheme;
+            MacButtonRules.Load();
+            MacButtonRules.Changed += OnRulesChanged;
             FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual;
             Bounds = new Rectangle(-200, -200, 1, 1);
             cleanup.Tick += (o, e) => Cleanup();
@@ -65,7 +72,43 @@ namespace MacDock
 
         protected override CreateParams CreateParams { get { var cp = base.CreateParams; cp.ExStyle |= 0x80 | 0x8000000; return cp; } }
         protected override bool ShowWithoutActivation { get { return true; } }
-        public void SetTheme(bool lightTheme) { }
+        public void SetTheme(bool lightTheme) { light = lightTheme; foreach (var h in bordered.ToList()) Border(h, true); }
+
+        void OnRulesChanged() { try { if (!IsDisposed) BeginInvoke(new Action(ApplyRules)); } catch { } }
+
+        // se cambiaron las apps elegidas o el borde: quitar/poner sin reiniciar nada
+        void ApplyRules()
+        {
+            foreach (var h in overlays.Keys.ToList())
+            {
+                if (!MacButtonRules.Allowed(h)) Remove(h);
+                else Border(h, MacButtonRules.MacBorder);
+            }
+            var all = new List<IntPtr>();
+            N.EnumWindows((h, l) => { all.Add(h); return true; }, IntPtr.Zero);
+            foreach (var h in all) Ensure(h);
+        }
+
+        // esquinas redondeadas y un borde gris fino, como las ventanas de Mac (Windows 11; en Windows 10 no hace nada)
+        void Border(IntPtr h, bool on)
+        {
+            try
+            {
+                if (on)
+                {
+                    int round = 2; DwmSetWindowAttribute(h, 33, ref round, 4);
+                    int col = light ? 0x00C8C6C4 : 0x00544F4C;   // gris claro / gris oscuro (formato 0x00BBGGRR)
+                    DwmSetWindowAttribute(h, 34, ref col, 4);
+                    bordered.Add(h);
+                }
+                else if (bordered.Remove(h))
+                {
+                    int def = 0; DwmSetWindowAttribute(h, 33, ref def, 4);
+                    int dc = unchecked((int)0xFFFFFFFF); DwmSetWindowAttribute(h, 34, ref dc, 4);   // color de Windows otra vez
+                }
+            }
+            catch { }
+        }
 
         protected override void OnShown(EventArgs e)
         {
@@ -127,8 +170,9 @@ namespace MacDock
 
         void Ensure(IntPtr h)
         {
-            if (overlays.ContainsKey(h) || !Eligible(h)) return;
+            if (overlays.ContainsKey(h) || !Eligible(h) || !MacButtonRules.Allowed(h)) return;
             var ov = new ButtonOverlay(h);
+            if (MacButtonRules.MacBorder) Border(h, true);
             overlays[h] = ov; lock (tracked) tracked.Add(h);
             ov.Show();
             ov.Place(h == active);
@@ -139,6 +183,7 @@ namespace MacDock
             ButtonOverlay ov;
             if (!overlays.TryGetValue(h, out ov)) return;
             overlays.Remove(h); lock (tracked) tracked.Remove(h);
+            if (IsWindow(h)) Border(h, false); else bordered.Remove(h);
             try { if (!ov.IsDisposed) { ov.Close(); ov.Dispose(); } } catch { }
         }
 
@@ -175,7 +220,8 @@ namespace MacDock
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            closing = true; try { if (hookThreadId != 0) PostThreadMessage(hookThreadId, 0x12, IntPtr.Zero, IntPtr.Zero); } catch { }
+            closing = true; MacButtonRules.Changed -= OnRulesChanged;
+            try { if (hookThreadId != 0) PostThreadMessage(hookThreadId, 0x12, IntPtr.Zero, IntPtr.Zero); } catch { }
             cleanup.Stop();
             foreach (var h in overlays.Keys.ToList()) Remove(h);
             base.OnFormClosing(e);

@@ -55,7 +55,7 @@ $man = $man -replace 'assemblyIdentity version="[^"]*"', "assemblyIdentity versi
 $manGen = Join-Path $build "app.g.manifest"
 Set-Content -Path $manGen -Value $man -Encoding UTF8
 
-$cs = "Native.cs", "Dock.cs", "Setup.cs", "Saver.cs", "Stack.cs", "MenuBar.cs", "Ui.cs", "FileOps.cs", "QuickLook.cs", "Spotlight.cs", "Finder.cs", "MacButtons.cs", "ShellMenu.cs", "AppIndex.cs", "Launchpad.cs", "AppSwitcher.cs", "Widgets.cs", "Wallpapers.cs", "ActivityMonitor.cs", "TrayApps.cs", "NotificationCenter.cs", "NowPlaying.cs", "Focus.cs", "MacWindow.cs", "MacChrome.cs", "FocusWindow.cs", "ClockApp.cs", "SysToggles.cs" | ForEach-Object { Join-Path $src $_ }
+$cs = "Native.cs", "Dock.cs", "Setup.cs", "Saver.cs", "Stack.cs", "MenuBar.cs", "Ui.cs", "FileOps.cs", "QuickLook.cs", "Spotlight.cs", "Finder.cs", "MacButtons.cs", "ShellMenu.cs", "AppIndex.cs", "Launchpad.cs", "AppSwitcher.cs", "Widgets.cs", "Wallpapers.cs", "ActivityMonitor.cs", "TrayApps.cs", "NotificationCenter.cs", "NowPlaying.cs", "Focus.cs", "MacWindow.cs", "MacChrome.cs", "MacButtonsPanel.cs", "FocusWindow.cs", "ClockApp.cs", "SysToggles.cs" | ForEach-Object { Join-Path $src $_ }
 $cs += $aiGen
 $res = @(
     "/resource:$src\ajustes.ps1,ajustes.ps1",

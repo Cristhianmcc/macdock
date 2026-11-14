@@ -1827,7 +1827,13 @@ namespace MacDock
                 });
             }
             addOpt("Menu de Mac al hacer clic derecho en el escritorio", cfg.DesktopMenu, () => { cfg.DesktopMenu = !cfg.DesktopMenu; cfg.Save(); SetDesktopMenu(cfg.DesktopMenu); });
-            addOpt("Botones de Mac en todas las ventanas", cfg.MacButtons, () => { cfg.MacButtons = !cfg.MacButtons; cfg.Save(); SetMacButtons(cfg.MacButtons); });
+            addOpt("Botones de Mac en las ventanas", cfg.MacButtons, () => { cfg.MacButtons = !cfg.MacButtons; cfg.Save(); SetMacButtons(cfg.MacButtons); });
+            {
+                // elegir en que apps salen (Chrome, Brave, VS Code, Steam...) y el borde de Mac
+                var mi = new ToolStripMenuItem("Elegir apps con botones de Mac…");
+                mi.Click += (o, e) => MacButtonsWindow.Open(() => cfg.MacButtons, on => { cfg.MacButtons = on; cfg.Save(); SetMacButtons(on); });
+                opts.DropDownItems.Add(mi);
+            }
             addOpt("Abrir Finder en vez del Explorador", cfg.UseFinder, () => { cfg.UseFinder = !cfg.UseFinder; cfg.Save(); });
             addOpt("Spotlight con Alt + Espacio", cfg.SpotlightKey, () =>
             {

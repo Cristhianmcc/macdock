@@ -86,6 +86,10 @@ Incluye además un **menú de ajustes** (un script de PowerShell) que cambia la 
 - **Música**: qué está sonando (Spotify, YouTube Music en el navegador, Apple Music, VLC…) con portada y controles, usando la API oficial de Windows. El Centro de Control usa lo mismo.
 - **Concentración (Pomodoro)**: concentración, descanso y descanso largo, aviso al terminar cada fase y, si quieres, "No molestar" mientras te concentras. Clic en el widget para abrir su ventana: tiempos y rondas a tu gusto, **lista de tareas** (cada concentración terminada le suma un pomodoro a la tarea elegida) y cuántos llevas hoy.
 
+### 🔴🟡🟢 Botones de Mac por app
+- Menú del dock → Opciones → **Elegir apps con botones de Mac…**: prende o apaga los botones (y el borde redondeado estilo Mac) en cada app, como Chrome, Brave, VS Code o Steam.
+- Dos formas: **en todas menos las que apagues**, o **solo en las que elijas**. Los cambios se ven al instante.
+
 ### ⏰ Reloj (como el de macOS Ventura)
 - Clic en el widget del reloj: **Reloj mundial** (ciudades con su hora y si allá ya es mañana), **Alarmas** (una vez, diario o lunes a viernes), **Cronómetro** con vueltas y **Temporizador**.
 - Las alarmas y el temporizador suenan aunque cierres la ventana, mientras MacDock esté abierto.
